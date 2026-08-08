@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>torrentd</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⬇️</text></svg>">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot" id="conn-dot" title="connecting…"></span>
+      <h1>torrentd</h1>
+    </div>
+
+    <div class="globals">
+      <div class="stat">
+        <span class="stat-label">Down</span>
+        <span class="stat-value down" id="g-down">0 B/s</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Up</span>
+        <span class="stat-value up" id="g-up">0 B/s</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Active</span>
+        <span class="stat-value" id="g-active">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Queued</span>
+        <span class="stat-value" id="g-queued">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Done</span>
+        <span class="stat-value" id="g-done">0</span>
+      </div>
+    </div>
+
+    <button class="btn ghost" id="btn-settings" title="Settings">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+      <span>Settings</span>
+    </button>
+  </header>
+
+  <main>
+    <section class="add-card">
+      <textarea id="magnet-input" rows="2" spellcheck="false"
+        placeholder="Paste one or more magnet links — one per line&#10;magnet:?xt=urn:btih:…"></textarea>
+      <div class="add-actions">
+        <span class="hint" id="add-hint">Downloads run one at a time by default.</span>
+        <button class="btn primary" id="btn-add">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          Add to queue
+        </button>
+      </div>
+    </section>
+
+    <div class="list-head">
+      <div class="tabs" id="filters">
+        <button class="tab active" data-filter="all">All</button>
+        <button class="tab" data-filter="downloading">Downloading</button>
+        <button class="tab" data-filter="queued">Queued</button>
+        <button class="tab" data-filter="done">Done</button>
+        <button class="tab" data-filter="error">Failed</button>
+      </div>
+      <button class="btn ghost small" id="btn-clear">Clear completed</button>
+    </div>
+
+    <div id="list" class="list"></div>
+
+    <div id="empty" class="empty">
+      <div class="empty-icon">🧲</div>
+      <p>Nothing in the queue yet.</p>
+      <span>Paste a magnet link above to get started.</span>
+    </div>
+  </main>
+
+  <!-- Settings -->
+  <div class="modal-backdrop" id="settings-modal" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h2>Settings</h2>
+        <button class="icon-btn" data-close="settings-modal" aria-label="Close">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <label class="field">
+          <span class="field-label">Download folder</span>
+          <div class="row">
+            <input type="text" id="s-path" spellcheck="false" placeholder="/Users/you/Downloads">
+            <button class="btn ghost" id="btn-browse">Browse…</button>
+          </div>
+          <span class="field-hint">Files are saved here on the machine running the server.</span>
+        </label>
+
+        <div class="two-col">
+          <label class="field">
+            <span class="field-label">Concurrent downloads</span>
+            <input type="number" id="s-concurrent" min="1" max="10" step="1">
+            <span class="field-hint">1 = strictly one at a time.</span>
+          </label>
+
+          <label class="field">
+            <span class="field-label">After finishing</span>
+            <select id="s-seed">
+              <option value="0">Stop (download only)</option>
+              <option value="1">Keep seeding</option>
+            </select>
+            <span class="field-hint">Seeding shares completed files back.</span>
+          </label>
+        </div>
+
+        <hr>
+
+        <h3>Login</h3>
+        <div class="two-col">
+          <label class="field">
+            <span class="field-label">Username</span>
+            <input type="text" id="s-user" autocomplete="username">
+          </label>
+          <label class="field">
+            <span class="field-label">New password</span>
+            <input type="password" id="s-pass" autocomplete="new-password" placeholder="leave blank to keep">
+          </label>
+        </div>
+        <span class="field-hint">Changing these signs you out — the browser will ask for the new login.</span>
+      </div>
+
+      <div class="modal-foot">
+        <span class="modal-msg" id="settings-msg"></span>
+        <button class="btn ghost" data-close="settings-modal">Cancel</button>
+        <button class="btn primary" id="btn-save-settings">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Folder picker -->
+  <div class="modal-backdrop" id="browse-modal" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h2>Choose a folder</h2>
+        <button class="icon-btn" data-close="browse-modal" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="crumb-row">
+          <button class="btn ghost small" id="btn-up">↑ Up</button>
+          <button class="btn ghost small" id="btn-home">Home</button>
+          <code id="browse-path" class="crumb"></code>
+        </div>
+        <div id="browse-list" class="browse-list"></div>
+        <div class="row mkdir-row">
+          <input type="text" id="new-folder" placeholder="New folder name">
+          <button class="btn ghost" id="btn-mkdir">Create</button>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <span class="modal-msg" id="browse-msg"></span>
+        <button class="btn ghost" data-close="browse-modal">Cancel</button>
+        <button class="btn primary" id="btn-pick">Use this folder</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toasts" class="toasts"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

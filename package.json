@@ -1,0 +1,21 @@
+{
+  "name": "torrentd",
+  "version": "1.0.0",
+  "description": "Self-hosted magnet-link download queue with a live web UI",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "type": "module",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "express": "^5.2.1",
+    "parse-torrent": "^11.0.24",
+    "webtorrent": "^3.0.21",
+    "ws": "^8.21.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "private": true
+}
