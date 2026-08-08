@@ -1,12 +1,71 @@
 # torrentd
 
+[![Publish Docker image](https://github.com/Dev-Pasaka/torrentd/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Dev-Pasaka/torrentd/actions/workflows/docker-publish.yml)
+
 A small self-hosted server that takes magnet links, downloads them one at a
 time, and saves the files to a folder you choose. Comes with a live web UI
 showing per-download progress, speed, peers and ETA.
 
 ![the queue running, with one download in progress](docs/screenshot.jpg)
 
-## Run with Docker
+## Deploy the published image
+
+Every push to `main` publishes a multi-arch image (linux/amd64 + linux/arm64) to
+Docker Hub as [`pascarl/torrentd`](https://hub.docker.com/r/pascarl/torrentd).
+Deploying it needs no clone and no build — one compose file is enough.
+
+Create a directory on the host, save this as `docker-compose.yml` inside it:
+
+```yaml
+services:
+  torrentd:
+    image: pascarl/torrentd:latest
+    container_name: torrentd
+    restart: unless-stopped
+    user: "1000:1000"            # `id -u`:`id -g` — owns the downloaded files
+    ports:
+      - "127.0.0.1:8080:8080"    # UI. Drop the 127.0.0.1 only behind TLS.
+      - "6881:6881/tcp"          # peers
+      - "6882:6882/udp"          # DHT
+    volumes:
+      - ./downloads:/downloads   # change the LEFT side to save elsewhere
+      - ./data:/data             # SQLite: queue + settings
+    environment:
+      TORRENTD_USER: admin       # omit both to get a generated password
+      TORRENTD_PASS: ""          # in the logs on first start
+```
+
+Then:
+
+```bash
+mkdir -p downloads data
+docker compose up -d
+docker compose logs torrentd     # the generated password is printed here
+```
+
+Or without a compose file at all:
+
+```bash
+docker run -d --name torrentd --restart unless-stopped \
+  -p 127.0.0.1:8080:8080 -p 6881:6881/tcp -p 6882:6882/udp \
+  -v "$PWD/downloads:/downloads" -v "$PWD/data:/data" \
+  --user "$(id -u):$(id -g)" \
+  pascarl/torrentd:latest
+```
+
+Upgrading pulls the new image and recreates the container; `./data` and
+`./downloads` are bind mounts, so the queue, settings and files all survive:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+Pin a version rather than tracking `latest` if you want upgrades to be
+deliberate — tagging a release (`git tag v1.1.0 && git push --tags`) publishes
+`pascarl/torrentd:1.1.0` and `:1.1`, and every build is also tagged with its
+commit as `:sha-<short>`.
+
+## Run from source with Docker
 
 ```bash
 cp .env.example .env      # optional — every value has a default
