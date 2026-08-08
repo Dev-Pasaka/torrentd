@@ -14,20 +14,30 @@ services:
       # Web UI. Bound to localhost only — Basic auth sends credentials in the
       # clear, so put it behind a TLS reverse proxy before using "8080:8080".
       - "127.0.0.1:${WEB_PORT:-8080}:8080"
-      # BitTorrent peer connections (TCP) and DHT (UDP). These must be two
-      # different numbers — WebTorrent binds them independently and fails with
-      # EADDRINUSE if they collide. Forward both on your router so peers can
-      # reach you; without that you can still connect out, just to fewer peers.
+      # Peers listen on BT_PORT over *both* protocols: TCP for classic
+      # BitTorrent, UDP for uTP (webtorrent's conn pool binds one server each on
+      # the same number). Publishing only one of the two halves your inbound
+      # peers. DHT is a separate UDP socket and must be a different number —
+      # WebTorrent binds them independently and fails with EADDRINUSE if they
+      # collide. Forward all three on your router so peers can reach you;
+      # without that you can still connect out, just to fewer peers.
       - "${BT_PORT:-6881}:6881/tcp"
+      - "${BT_PORT:-6881}:6881/udp"
       - "${DHT_PORT:-6882}:6882/udp"
 
     volumes:
-      # Completed downloads. Point the left side anywhere on the host you like,
-      # e.g. /Volumes/Media:/downloads — see the note in the README about the
-      # in-app folder picker showing container paths, not host paths.
-      - ./downloads:/downloads
+      # Completed downloads. Set DOWNLOADS_DIR in .env to any host path —
+      # relative to this file (./downloads) or absolute (/Volumes/Media,
+      # /srv/jellyfin/media/Shows&Movies). The container side stays /downloads,
+      # so moving the mount never invalidates the saved download_path setting.
+      # See the README note: the in-app folder picker browses container paths.
+      - "${DOWNLOADS_DIR:-./downloads}:/downloads"
       # SQLite database — the queue and settings live here.
-      - ./data:/data
+      - "${DATA_DIR:-./data}:/data"
+      # Extra libraries, if you want more than one destination to pick from in
+      # Settings. Anything under /downloads shows up in the folder picker:
+      # - "/mnt/tank/movies:/downloads/movies"
+      # - "/mnt/tank/shows:/downloads/shows"
 
     environment:
       # Leave both unset to have a password generated on first run and printed

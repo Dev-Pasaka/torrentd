@@ -25,10 +25,11 @@ services:
     user: "1000:1000"            # `id -u`:`id -g` — owns the downloaded files
     ports:
       - "127.0.0.1:8080:8080"    # UI. Drop the 127.0.0.1 only behind TLS.
-      - "6881:6881/tcp"          # peers
+      - "6881:6881/tcp"          # peers (BitTorrent)
+      - "6881:6881/udp"          # peers (uTP) — same port, other protocol
       - "6882:6882/udp"          # DHT
     volumes:
-      - ./downloads:/downloads   # change the LEFT side to save elsewhere
+      - "./downloads:/downloads" # change the LEFT side to save elsewhere
       - ./data:/data             # SQLite: queue + settings
     environment:
       TORRENTD_USER: admin       # omit both to get a generated password
@@ -47,7 +48,7 @@ Or without a compose file at all:
 
 ```bash
 docker run -d --name torrentd --restart unless-stopped \
-  -p 127.0.0.1:8080:8080 -p 6881:6881/tcp -p 6882:6882/udp \
+  -p 127.0.0.1:8080:8080 -p 6881:6881/tcp -p 6881:6881/udp -p 6882:6882/udp \
   -v "$PWD/downloads:/downloads" -v "$PWD/data:/data" \
   --user "$(id -u):$(id -g)" \
   pascarl/torrentd:latest
@@ -77,12 +78,33 @@ docker compose logs torrentd    # the generated password is printed here
 Then open <http://127.0.0.1:8080>. Downloads land in `./downloads`, the database
 in `./data`, both bind-mounted so they survive `docker compose down`.
 
-To save somewhere else on the host, change the **left** side of the volume — not
-the path in Settings:
+## Choosing where downloads land
+
+The container always writes to `/downloads`; what changes is the host folder
+bound to it. Set `DOWNLOADS_DIR` in `.env` and leave the container side alone —
+the saved download path in Settings keeps working across moves:
+
+```ini
+DOWNLOADS_DIR=/Volumes/Media/torrents
+DOWNLOADS_DIR=./downloads                        # relative to the compose file
+DOWNLOADS_DIR=/srv/jellyfin/media/Shows&Movies   # no escaping needed, no shell runs
+```
+
+`DATA_DIR` moves the SQLite database the same way. Point `DOWNLOADS_DIR` inside
+a media library and the files are picked up in place — no copy, no symlink:
+
+```yaml
+# elsewhere in a stack that also runs Jellyfin
+- "./jellyfin/media/Shows&Movies:/downloads"
+```
+
+For more than one destination, mount each as a subfolder of `/downloads` — they
+all show up in the picker and you switch between them in Settings:
 
 ```yaml
 volumes:
-  - /Volumes/Media/torrents:/downloads
+  - /mnt/tank/movies:/downloads/movies
+  - /mnt/tank/shows:/downloads/shows
 ```
 
 > **The folder picker browses the container, not the host.** Inside Docker,
@@ -95,10 +117,13 @@ volumes:
 Files in `./downloads` are owned by uid/gid `1000:1000` by default. If that is
 not you, set `PUID`/`PGID` in `.env` to your `id -u` / `id -g`.
 
-The compose file publishes the UI on `127.0.0.1` only, and maps two BitTorrent
-ports: 6881/TCP for peers and 6882/UDP for DHT. They have to be different
-numbers — WebTorrent binds them separately and logs `EADDRINUSE` if they
-collide. Forward both on your router for better peer connectivity, and change
+The compose file publishes the UI on `127.0.0.1` only, and maps three
+BitTorrent ports: 6881 on **both** TCP and UDP for peers — the connection pool
+binds a TCP server and a uTP (UDP) server on the same number, so publishing only
+one protocol turns away half the inbound peers — plus 6882/UDP for DHT. The peer
+and DHT ports have to be different numbers; WebTorrent binds them separately and
+logs `EADDRINUSE` if they collide. Forward all three on your router for better
+peer connectivity, and change
 `BT_PORT`/`DHT_PORT` in `.env` if another client on the machine already has
 them.
 
