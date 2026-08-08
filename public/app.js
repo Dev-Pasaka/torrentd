@@ -58,8 +58,17 @@ function toast (message, kind = '') {
 
 /* ---------- api ---------- */
 
+// The UI is served from wherever it is mounted: "/" when you hit the container
+// directly, "/torrentd/" behind a reverse proxy. Resolving every request
+// against this script's own URL keeps both working. Root-absolute "/api/…"
+// would escape the mount point and hit whatever the proxy serves at the site
+// root instead — nginx answers a POST there with 405, not a torrentd error.
+const BASE = new URL('.', document.currentScript?.src || location.href)
+
+const url = path => new URL(path.replace(/^\//, ''), BASE)
+
 async function api (path, options = {}) {
-  const res = await fetch(path, {
+  const res = await fetch(url(path), {
     headers: { 'content-type': 'application/json' },
     ...options
   })
@@ -77,8 +86,10 @@ let retryDelay = 1000
 async function connect () {
   try {
     const { token } = await api('/api/ws-token')
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`)
+    const wsUrl = url('/ws')
+    wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:'
+    wsUrl.searchParams.set('token', token)
+    ws = new WebSocket(wsUrl)
   } catch {
     setConn(false)
     return void setTimeout(connect, retryDelay = Math.min(retryDelay * 2, 15000))

@@ -127,6 +127,40 @@ peer connectivity, and change
 `BT_PORT`/`DHT_PORT` in `.env` if another client on the machine already has
 them.
 
+## Behind a reverse proxy
+
+The UI resolves every request against the path it was served from, so it runs at
+a subpath without any configuration on its side. The proxy has to do two things:
+**strip the prefix** (the trailing slash on `proxy_pass` is what does that) and
+**pass the WebSocket upgrade**, which carries the live progress bars.
+
+```nginx
+location /torrentd/ {
+    proxy_pass http://torrentd:8080/;   # the trailing / strips /torrentd/
+    proxy_set_header Host              $host;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # live updates
+    proxy_set_header Upgrade    $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_http_version 1.1;
+
+    # magnets are small, but torrent files are not
+    client_max_body_size 10m;
+    proxy_read_timeout   1h;    # the websocket is long-lived
+}
+```
+
+> **`405 Not Allowed` from nginx when adding a magnet** means the prefix is not
+> being stripped: `proxy_pass http://torrentd:8080;` without the trailing slash
+> forwards `/torrentd/api/torrents` unchanged, torrentd has no such route, and
+> the POST falls through to whatever serves your site root. Add the slash.
+
+Put the proxy on TLS before exposing it. Basic auth sends the password in
+clear text, and the compose file binds the container's own port to `127.0.0.1`
+precisely so the proxy is the only way in.
+
 ## Run without Docker
 
 ```bash
