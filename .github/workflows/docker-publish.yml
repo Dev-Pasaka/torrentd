@@ -6,14 +6,13 @@ on:
     tags: ['v*.*.*']
   workflow_dispatch:
 
-env:
-  IMAGE: pascarl/torrentd
-
 jobs:
-  publish:
+  publish-torrentd:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      IMAGE: pascarl/torrentd
 
     steps:
       - uses: actions/checkout@v4
@@ -47,5 +46,48 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=torrentd
+          cache-to: type=gha,mode=max,scope=torrentd
+
+  # torrentd's torrent-search feature calls this service at runtime (see
+  # server/rarbg.js) — without an image for it, anyone deploying via the
+  # published torrentd image alone (no repo clone, so no ./moviesapi to
+  # build) gets a 502 on every search.
+  publish-moviesapi:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      IMAGE: pascarl/torrentd-moviesapi
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./moviesapi
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=moviesapi
+          cache-to: type=gha,mode=max,scope=moviesapi

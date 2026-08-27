@@ -10,9 +10,12 @@ showing per-download progress, speed, peers and ETA.
 
 ## Deploy the published image
 
-Every push to `main` publishes a multi-arch image (linux/amd64 + linux/arm64) to
-Docker Hub as [`pascarl/torrentd`](https://hub.docker.com/r/pascarl/torrentd).
-Deploying it needs no clone and no build — one compose file is enough.
+Every push to `main` publishes multi-arch images (linux/amd64 + linux/arm64) to
+Docker Hub: [`pascarl/torrentd`](https://hub.docker.com/r/pascarl/torrentd) and
+[`pascarl/torrentd-moviesapi`](https://hub.docker.com/r/pascarl/torrentd-moviesapi).
+The second one powers torrent search on a title's page (see **Browse: movie &
+TV search** below) — without it, search returns a `502`. Deploying needs no
+clone and no build — one compose file is enough.
 
 Create a directory on the host, save this as `docker-compose.yml` inside it:
 
@@ -22,6 +25,8 @@ services:
     image: pascarl/torrentd:latest
     container_name: torrentd
     restart: unless-stopped
+    depends_on:
+      - moviesapi
     user: "1000:1000"            # `id -u`:`id -g` — owns the downloaded files
     ports:
       - "127.0.0.1:8080:8080"    # UI. Drop the 127.0.0.1 only behind TLS.
@@ -34,6 +39,13 @@ services:
     environment:
       TORRENTD_USER: admin       # omit both to get a generated password
       TORRENTD_PASS: ""          # in the logs on first start
+      MOVIESAPI_URL: http://moviesapi:8000
+
+  moviesapi:
+    image: pascarl/torrentd-moviesapi:latest
+    container_name: moviesapi
+    restart: unless-stopped
+    # Not published to the host — only torrentd talks to it.
 ```
 
 Then:
@@ -44,7 +56,9 @@ docker compose up -d
 docker compose logs torrentd     # the generated password is printed here
 ```
 
-Or without a compose file at all:
+`moviesapi` has no standalone `docker run` equivalent worth documenting on its
+own — it does nothing without `torrentd` calling it — so skip it if you're
+running without a compose file and just accept that torrent search won't work:
 
 ```bash
 docker run -d --name torrentd --restart unless-stopped \
@@ -54,7 +68,7 @@ docker run -d --name torrentd --restart unless-stopped \
   pascarl/torrentd:latest
 ```
 
-Upgrading pulls the new image and recreates the container; `./data` and
+Upgrading pulls the new images and recreates the containers; `./data` and
 `./downloads` are bind mounts, so the queue, settings and files all survive:
 
 ```bash
@@ -63,8 +77,8 @@ docker compose pull && docker compose up -d
 
 Pin a version rather than tracking `latest` if you want upgrades to be
 deliberate — tagging a release (`git tag v1.1.0 && git push --tags`) publishes
-`pascarl/torrentd:1.1.0` and `:1.1`, and every build is also tagged with its
-commit as `:sha-<short>`.
+`pascarl/torrentd:1.1.0` / `:1.1` and `pascarl/torrentd-moviesapi:1.1.0` / `:1.1`
+together, and every build is also tagged with its commit as `:sha-<short>`.
 
 ## Run from source with Docker
 
