@@ -5,3 +5,5 @@ downloads/
 .DS_Store
 .idea/
 .claude/
+moviesapi/.venv/
+moviesapi/__pycache__/

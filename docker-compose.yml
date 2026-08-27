@@ -4,6 +4,8 @@ services:
     image: torrentd
     container_name: torrentd
     restart: unless-stopped
+    depends_on:
+      - moviesapi
 
     # Files written into ./downloads are owned by this uid/gid. Defaults match
     # the image's `node` user; set PUID/PGID in .env to your own (`id -u`/`id -g`)
@@ -35,9 +37,12 @@ services:
       # SQLite database — the queue and settings live here.
       - "${DATA_DIR:-./data}:/data"
       # Extra libraries, if you want more than one destination to pick from in
-      # Settings. Anything under /downloads shows up in the folder picker:
-      # - "/mnt/tank/movies:/downloads/movies"
-      # - "/mnt/tank/shows:/downloads/shows"
+      # Settings, or a separate library to organize into via the Files page
+      # (see LIBRARY_DIRS below — each mount here needs a matching entry
+      # there to actually show up in Files, browsing-for-a-download-path
+      # works for anything under /downloads regardless):
+      # - "/mnt/tank/movies:/media/movies"
+      # - "/mnt/tank/shows:/media/shows"
 
     environment:
       # Leave both unset to have a password generated on first run and printed
@@ -48,6 +53,32 @@ services:
       # Off by default: nat-api crashes the process on a port bind conflict.
       NAT_UPNP: ${NAT_UPNP:-}
       NAT_PMP: ${NAT_PMP:-}
+      # Powers the "Browse" search tab. Leave blank to disable it.
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
+      # Torrent search on a title's page. Points at the moviesapi service
+      # below via Docker's internal DNS — leave as-is unless moviesapi runs
+      # elsewhere.
+      MOVIESAPI_URL: ${MOVIESAPI_URL:-http://moviesapi:8000}
+      # Named, comma-separated Name:/container/path roots for the Files page
+      # (browse/delete/copy/move). Each name here needs a matching volume
+      # mount above — this is deliberately not a free-text host path, so the
+      # feature can only ever touch directories you've explicitly mounted in.
+      LIBRARY_DIRS: ${LIBRARY_DIRS:-Downloads:/downloads}
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  moviesapi:
+    build: ./moviesapi
+    image: moviesapi
+    container_name: moviesapi
+    restart: unless-stopped
+
+    # Not published to the host — only torrentd talks to it, over the
+    # compose-internal network.
 
     logging:
       driver: json-file

@@ -317,6 +317,7 @@ function actions (t) {
     out.push(btn('up', 'Move up', '↑'))
     out.push(btn('down', 'Move down', '↓'))
   }
+  if (t.status === 'done') out.push(btn('relocate', 'Move to a library folder…', '🗂'))
   out.push(btn('remove', 'Remove from list (keeps files)', '✕'))
   return out.join('')
 }
@@ -341,6 +342,9 @@ $('list').addEventListener('click', async event => {
         method: 'POST',
         body: JSON.stringify({ direction: action })
       })
+    } else if (action === 'relocate') {
+      const item = state.torrents.find(t => String(t.id) === id)
+      openRelocatePicker(Number(id), item?.name || 'this download')
     } else {
       await api(`/api/torrents/${id}/${action}`, { method: 'POST' })
     }
@@ -517,7 +521,714 @@ $('btn-pick').addEventListener('click', () => {
   close('browse-modal')
 })
 
+/* ---------- library files (scoped to LIBRARY_DIRS — browse, delete, copy, move) ---------- */
+
+let libraries = []
+let currentLibrary = null
+let currentPath = ''
+let confirmingDelete = null // relative path of the row currently showing "delete this?"
+
+const pathUp = p => p.split('/').filter(Boolean).slice(0, -1).join('/')
+const joinPath = (p, name) => (p ? `${p}/${name}` : name)
+const dateStr = ms => new Date(ms).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+
+function fileRowHtml (entry) {
+  const rel = joinPath(currentPath, entry.name)
+  const meta = entry.isDir ? '' : `${bytes(entry.size)} · ${dateStr(entry.mtime)}`
+  const actions = confirmingDelete === rel
+    ? `
+      <span class="file-confirm">Delete permanently?</span>
+      <button class="btn small danger" data-confirm-delete="${escapeHtml(rel)}">Yes</button>
+      <button class="btn small ghost" data-cancel-delete>No</button>`
+    : `
+      <button class="icon-btn" data-copy-item="${escapeHtml(rel)}" data-is-dir="${entry.isDir}" title="Copy to…">⧉</button>
+      <button class="icon-btn" data-move-item="${escapeHtml(rel)}" data-is-dir="${entry.isDir}" title="Move to…">⇢</button>
+      <button class="icon-btn" data-delete-item="${escapeHtml(rel)}" title="Delete">🗑</button>`
+
+  return `
+    <div class="file-row${entry.isDir ? ' file-row-dir' : ''}" data-path="${escapeHtml(rel)}" data-is-dir="${entry.isDir}">
+      <span class="file-icon">${entry.isDir ? '📁' : '📄'}</span>
+      <span class="file-name" title="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</span>
+      <span class="file-meta">${meta}</span>
+      <span class="file-actions">${actions}</span>
+    </div>`
+}
+
+async function ensureLibraries () {
+  if (libraries.length) return
+  try {
+    const { libraries: list } = await api('/api/files/libraries')
+    libraries = list
+  } catch {
+    libraries = []
+  }
+}
+
+async function loadFileLibraries () {
+  await ensureLibraries()
+  if (!currentLibrary || !libraries.includes(currentLibrary)) currentLibrary = libraries[0] || null
+  $('library-tabs').innerHTML = libraries.map(name =>
+    `<button class="tab${name === currentLibrary ? ' active' : ''}" data-library="${escapeHtml(name)}">${escapeHtml(name)}</button>`
+  ).join('')
+
+  if (!libraries.length) {
+    $('files-msg').textContent = 'No library directories configured — set LIBRARY_DIRS to enable this page.'
+    $('files-list').innerHTML = ''
+    return
+  }
+  loadFiles('')
+}
+
+async function loadFiles (relPath) {
+  confirmingDelete = null
+  const msg = $('files-msg')
+  msg.textContent = ''
+  try {
+    const { entries } = await api(`/api/files/list?library=${encodeURIComponent(currentLibrary)}&path=${encodeURIComponent(relPath)}`)
+    currentPath = relPath
+    $('files-path').textContent = `${currentLibrary}/${currentPath}`
+    $('files-up').disabled = !currentPath
+    $('files-list').innerHTML = entries.length
+      ? entries.map(fileRowHtml).join('')
+      : '<div class="dir-empty">Empty folder</div>'
+  } catch (err) {
+    msg.textContent = err.message
+  }
+}
+
+$('files-back').addEventListener('click', event => {
+  event.preventDefault()
+  location.hash = ''
+})
+
+$('library-tabs').addEventListener('click', event => {
+  const tab = event.target.closest('[data-library]')
+  if (!tab) return
+  currentLibrary = tab.dataset.library
+  document.querySelectorAll('#library-tabs .tab').forEach(t => t.classList.toggle('active', t === tab))
+  loadFiles('')
+})
+
+$('files-up').addEventListener('click', () => loadFiles(pathUp(currentPath)))
+$('files-home').addEventListener('click', () => loadFiles(''))
+
+$('files-mkdir').addEventListener('click', async () => {
+  const input = $('files-new-folder')
+  const name = input.value.trim()
+  if (!name) return
+  try {
+    await api('/api/files/mkdir', {
+      method: 'POST',
+      body: JSON.stringify({ library: currentLibrary, path: currentPath, name })
+    })
+    input.value = ''
+    loadFiles(currentPath)
+  } catch (err) {
+    $('files-msg').textContent = err.message
+  }
+})
+
+$('files-list').addEventListener('click', event => {
+  const confirmBtn = event.target.closest('[data-confirm-delete]')
+  if (confirmBtn) {
+    api(`/api/files/item?library=${encodeURIComponent(currentLibrary)}&path=${encodeURIComponent(confirmBtn.dataset.confirmDelete)}`, { method: 'DELETE' })
+      .then(() => { toast('Deleted', 'ok'); loadFiles(currentPath) })
+      .catch(err => { $('files-msg').textContent = err.message })
+    return
+  }
+  if (event.target.closest('[data-cancel-delete]')) {
+    confirmingDelete = null
+    loadFiles(currentPath)
+    return
+  }
+  const deleteBtn = event.target.closest('[data-delete-item]')
+  if (deleteBtn) {
+    confirmingDelete = deleteBtn.dataset.deleteItem
+    loadFiles(currentPath)
+    return
+  }
+  const copyBtn = event.target.closest('[data-copy-item]')
+  if (copyBtn) return openFileTransferPicker('copy', copyBtn.dataset.copyItem)
+  const moveBtn = event.target.closest('[data-move-item]')
+  if (moveBtn) return openFileTransferPicker('move', moveBtn.dataset.moveItem)
+
+  const row = event.target.closest('.file-row-dir')
+  if (row) loadFiles(row.dataset.path)
+})
+
+/* ---------- destination picker (shared: Files copy/move, torrent relocate) ---------- */
+
+let destLibrary = null
+let destPath = ''
+let destOnConfirm = null // async ({ destLibrary, destPath }) => void
+
+async function openDestPicker ({ title, confirmLabel, initialLibrary, initialPath, onConfirm }) {
+  await ensureLibraries()
+  if (!libraries.length) return toast('No library directories configured (set LIBRARY_DIRS)', 'error')
+
+  destLibrary = initialLibrary && libraries.includes(initialLibrary) ? initialLibrary : libraries[0]
+  destPath = initialPath || ''
+  destOnConfirm = onConfirm
+
+  $('files-dest-title').textContent = title
+  $('dest-confirm').textContent = confirmLabel
+  $('dest-msg').textContent = ''
+  $('dest-library-tabs').innerHTML = libraries.map(name =>
+    `<button class="tab${name === destLibrary ? ' active' : ''}" data-dest-library="${escapeHtml(name)}">${escapeHtml(name)}</button>`
+  ).join('')
+  loadDestFiles(destPath)
+  open('files-dest-modal')
+}
+
+function openFileTransferPicker (action, srcPath) {
+  openDestPicker({
+    title: action === 'copy' ? 'Copy to…' : 'Move to…',
+    confirmLabel: action === 'copy' ? 'Copy here' : 'Move here',
+    initialLibrary: currentLibrary,
+    initialPath: currentPath,
+    onConfirm: async ({ destLibrary, destPath }) => {
+      await api(`/api/files/${action}`, {
+        method: 'POST',
+        body: JSON.stringify({ srcLibrary: currentLibrary, srcPath, destLibrary, destPath })
+      })
+      toast(action === 'copy' ? 'Copied' : 'Moved', 'ok')
+      loadFiles(currentPath)
+    }
+  })
+}
+
+function openRelocatePicker (id, name) {
+  openDestPicker({
+    title: `Move "${name}" to…`,
+    confirmLabel: 'Move here',
+    initialLibrary: null,
+    initialPath: '',
+    onConfirm: async ({ destLibrary, destPath }) => {
+      await api(`/api/torrents/${id}/relocate`, {
+        method: 'POST',
+        body: JSON.stringify({ destLibrary, destPath })
+      })
+      toast('Moved', 'ok')
+    }
+  })
+}
+
+async function loadDestFiles (relPath) {
+  const msg = $('dest-msg')
+  try {
+    const { entries } = await api(`/api/files/list?library=${encodeURIComponent(destLibrary)}&path=${encodeURIComponent(relPath)}`)
+    destPath = relPath
+    $('dest-path').textContent = `${destLibrary}/${destPath}`
+    $('dest-up').disabled = !destPath
+    const dirs = entries.filter(e => e.isDir)
+    $('dest-list').innerHTML = dirs.length
+      ? dirs.map(d => `<button class="dir-row" data-path="${escapeHtml(joinPath(destPath, d.name))}"><span>📁</span>${escapeHtml(d.name)}</button>`).join('')
+      : '<div class="dir-empty">No sub-folders here</div>'
+  } catch (err) {
+    msg.textContent = err.message
+  }
+}
+
+$('dest-library-tabs').addEventListener('click', event => {
+  const tab = event.target.closest('[data-dest-library]')
+  if (!tab) return
+  destLibrary = tab.dataset.destLibrary
+  document.querySelectorAll('#dest-library-tabs .tab').forEach(t => t.classList.toggle('active', t === tab))
+  loadDestFiles('')
+})
+
+$('dest-list').addEventListener('click', event => {
+  const dir = event.target.closest('[data-path]')
+  if (dir) loadDestFiles(dir.dataset.path)
+})
+
+$('dest-up').addEventListener('click', () => loadDestFiles(pathUp(destPath)))
+$('dest-home').addEventListener('click', () => loadDestFiles(''))
+
+$('dest-confirm').addEventListener('click', async () => {
+  const button = $('dest-confirm')
+  button.disabled = true
+  try {
+    await destOnConfirm({ destLibrary, destPath })
+    close('files-dest-modal')
+  } catch (err) {
+    $('dest-msg').textContent = err.message
+  } finally {
+    button.disabled = false
+  }
+})
+
+/* ---------- media browse (search + Jellyfin-style naming) ---------- */
+
+let mediaType = 'multi'
+let mediaResults = []
+let networks = []
+let activeNetwork = null
+
+const pad2 = n => String(n).padStart(2, '0')
+
+/** Turns a title into dot-separated words the way scene/Jellyfin names do. */
+function slug (text) {
+  return String(text || '')
+    .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, 'and')
+    .replace(/[’'"!?,:]/g, '')
+    .trim()
+    .replace(/[\s._-]+/g, '.')
+}
+
+const movieName = item => slug(item.title) + (item.year ? `.${item.year}` : '')
+const episodeName = (showTitle, season, ep) => `${slug(showTitle)}.S${pad2(season)}E${pad2(ep)}`
+const seasonName = (showTitle, season) => `${slug(showTitle)}.Season.${season}`
+
+async function copyText (text) {
+  try {
+    await navigator.clipboard.writeText(text)
+    toast(`Copied "${text}"`, 'ok')
+  } catch {
+    toast('Could not copy — clipboard access was denied', 'error')
+  }
+}
+
+function mediaCardHtml (item) {
+  const poster = item.poster
+    ? `<img src="${item.poster}" alt="" loading="lazy">`
+    : `<div class="no-poster">${item.type === 'movie' ? '🎬' : '📺'}</div>`
+  const rating = item.rating ? `<span class="media-card-rating">★ ${item.rating.toFixed(1)}</span>` : ''
+  const overview = item.overview
+    ? `<div class="media-card-overview">${escapeHtml(item.overview)}</div>`
+    : ''
+  return `
+    <button class="media-card" data-id="${item.id}" data-type="${item.type}">
+      <div class="media-card-poster">
+        ${poster}
+        ${rating}
+        ${overview}
+      </div>
+      <div class="media-card-info">
+        <div class="media-card-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</div>
+        <div class="media-card-year">${item.year || '—'} · ${item.type === 'movie' ? 'Movie' : 'Show'}</div>
+      </div>
+    </button>`
+}
+
+function renderMediaGrid () {
+  $('media-grid').innerHTML = mediaResults.length
+    ? mediaResults.map(mediaCardHtml).join('')
+    : '<div class="dir-empty">No results</div>'
+}
+
+async function loadTrending () {
+  activeNetwork = null
+  renderNetworkChips()
+  $('media-heading').textContent = 'Trending this week'
+  try {
+    const { results } = await api('/api/browse/trending')
+    mediaResults = results
+  } catch (err) {
+    $('media-heading').textContent = err.message
+    mediaResults = []
+  }
+  renderMediaGrid()
+}
+
+let mediaSearchTimer = null
+const scheduleMediaSearch = () => {
+  clearTimeout(mediaSearchTimer)
+  mediaSearchTimer = setTimeout(runMediaSearch, 300)
+}
+
+async function runMediaSearch () {
+  const query = $('media-query').value.trim()
+  if (!query) return loadTrending()
+
+  activeNetwork = null
+  renderNetworkChips()
+  $('media-heading').textContent = `Results for "${query}"`
+  try {
+    const { results } = await api(`/api/browse/search?q=${encodeURIComponent(query)}&type=${mediaType}`)
+    mediaResults = results
+  } catch (err) {
+    $('media-heading').textContent = err.message
+    mediaResults = []
+  }
+  renderMediaGrid()
+}
+
+function renderNetworkChips () {
+  const chips = [{ id: null, name: 'All' }, ...networks]
+  $('network-row').innerHTML = chips.map(n => `
+    <button class="network-chip${activeNetwork === n.id ? ' active' : ''}" data-network="${n.id ?? ''}">${escapeHtml(n.name)}</button>`
+  ).join('')
+}
+
+async function loadNetworkChips () {
+  if (networks.length) return
+  try {
+    const { networks: list } = await api('/api/browse/networks')
+    networks = list
+  } catch {
+    networks = []
+  }
+  renderNetworkChips()
+}
+
+async function loadNetwork (id) {
+  const network = networks.find(n => n.id === id)
+  if (!network) return loadTrending()
+
+  activeNetwork = id
+  renderNetworkChips()
+  mediaType = 'tv'
+  document.querySelectorAll('#media-type .tab').forEach(t => t.classList.toggle('active', t.dataset.type === 'tv'))
+  $('media-query').value = ''
+  $('media-heading').textContent = `Popular on ${network.name}`
+  try {
+    const { results } = await api(`/api/browse/network/${id}`)
+    mediaResults = results
+  } catch (err) {
+    $('media-heading').textContent = err.message
+    mediaResults = []
+  }
+  renderMediaGrid()
+}
+
+$('nav-browse').addEventListener('click', () => { location.hash = '#/browse' })
+$('nav-torrents').addEventListener('click', () => { location.hash = '' })
+$('nav-files').addEventListener('click', () => { location.hash = '#/files' })
+
+$('media-back').addEventListener('click', event => {
+  event.preventDefault()
+  location.hash = ''
+})
+
+$('media-query').addEventListener('input', scheduleMediaSearch)
+
+$('media-type').addEventListener('click', event => {
+  const tab = event.target.closest('.tab')
+  if (!tab) return
+  mediaType = tab.dataset.type
+  document.querySelectorAll('#media-type .tab').forEach(t => t.classList.toggle('active', t === tab))
+  activeNetwork = null
+  renderNetworkChips()
+  if ($('media-query').value.trim()) runMediaSearch()
+})
+
+$('network-row').addEventListener('click', event => {
+  const chip = event.target.closest('.network-chip')
+  if (!chip) return
+  loadNetwork(chip.dataset.network ? Number(chip.dataset.network) : null)
+})
+
+$('media-grid').addEventListener('click', event => {
+  const card = event.target.closest('.media-card')
+  if (!card) return
+  location.hash = `#/title/${card.dataset.type}/${card.dataset.id}`
+})
+
+/* ---------- title page ---------- */
+
+let pageData = null
+const pageSeasonCache = new Map() // `${id}:${season}` -> data
+
+function renderNaming (data) {
+  const container = $('title-naming')
+  if (data.type === 'movie') {
+    const name = movieName(data)
+    container.innerHTML = `
+      <h3>Copy for Jellyfin</h3>
+      <div class="copy-row">
+        <code class="copy-name">${escapeHtml(name)}</code>
+        <button class="btn primary" data-copy="${escapeHtml(name)}">Copy</button>
+      </div>`
+    return
+  }
+
+  container.innerHTML = `
+    <h3>Copy for Jellyfin</h3>
+    <div class="season-row">
+      <label class="field season-select">
+        <span class="field-label">Season</span>
+        <select id="page-season"></select>
+      </label>
+      <button class="btn small" id="btn-find-season">Find season torrents</button>
+    </div>
+    <div id="page-episodes">Loading episodes…</div>`
+
+  loadPageSeason(data, 1)
+}
+
+async function loadPageSeason (data, season) {
+  const key = `${data.id}:${season}`
+  let seasonData = pageSeasonCache.get(key)
+  if (!seasonData) {
+    try {
+      seasonData = await api(`/api/browse/tv/${data.id}/season/${season}`)
+      pageSeasonCache.set(key, seasonData)
+    } catch (err) {
+      $('page-episodes').textContent = err.message
+      return
+    }
+  }
+  if (pageData !== data) return // navigated elsewhere while this was in flight
+
+  const select = $('page-season')
+  if (!select.dataset.filled) {
+    select.innerHTML = Array.from({ length: seasonData.seasonCount }, (_, i) => i + 1)
+      .map(n => `<option value="${n}"${n === season ? ' selected' : ''}>Season ${n}</option>`)
+      .join('')
+    select.dataset.filled = '1'
+    select.addEventListener('change', () => loadPageSeason(data, Number(select.value)))
+  } else {
+    select.value = season
+  }
+
+  $('page-episodes').innerHTML = seasonData.episodes.length
+    ? seasonData.episodes.map(ep => {
+        const name = episodeName(seasonData.title, season, ep.episodeNumber)
+        return `
+          <div class="episode-row">
+            <span class="episode-label"><b>E${pad2(ep.episodeNumber)}</b> ${escapeHtml(ep.name || 'Untitled')}</span>
+            <code class="copy-name">${escapeHtml(name)}</code>
+            <button class="icon-btn" data-copy="${escapeHtml(name)}" title="Copy">⧉</button>
+            <button class="icon-btn" data-find-episode="${season}:${ep.episodeNumber}" title="Find torrents">🔎</button>
+          </div>`
+      }).join('')
+    : '<div class="dir-empty">No episodes listed for this season</div>'
+}
+
+$('title-naming').addEventListener('click', event => {
+  if (!pageData || pageData.type !== 'tv') return
+
+  if (event.target.closest('#btn-find-season')) {
+    const season = Number($('page-season').value || 1)
+    findTorrents(seasonName(pageData.title, season).replace(/\./g, ' '), 'tv', `Season ${season}`)
+    return
+  }
+
+  const epBtn = event.target.closest('[data-find-episode]')
+  if (epBtn) {
+    const [season, episode] = epBtn.dataset.findEpisode.split(':').map(Number)
+    findTorrents(episodeName(pageData.title, season, episode).replace(/\./g, ' '), 'tv', `S${pad2(season)}E${pad2(episode)}`)
+  }
+})
+
+function renderCast (cast) {
+  const section = $('title-cast-section')
+  if (!cast.length) { section.hidden = true; return }
+  section.hidden = false
+  $('title-cast').innerHTML = cast.map(c => `
+    <div class="cast-card">
+      ${c.photo ? `<img src="${c.photo}" alt="" loading="lazy">` : '<div class="cast-photo-placeholder">🎭</div>'}
+      <div class="cast-name" title="${escapeHtml(c.name)}">${escapeHtml(c.name)}</div>
+      <div class="cast-character" title="${escapeHtml(c.character)}">${escapeHtml(c.character)}</div>
+    </div>`).join('')
+}
+
+function renderWatch (watch) {
+  const section = $('title-watch-section')
+  const hasAny = watch && (watch.flatrate.length || watch.rent.length || watch.buy.length)
+  if (!hasAny) { section.hidden = true; return }
+  section.hidden = false
+
+  const group = (label, list) => !list.length ? '' : `
+    <div class="watch-group">
+      <span class="watch-label">${label}</span>
+      <div class="watch-providers">
+        ${list.map(p => `
+          <a class="watch-provider" href="${watch.link}" target="_blank" rel="noopener" title="${escapeHtml(p.name)}">
+            ${p.logo ? `<img src="${p.logo}" alt="${escapeHtml(p.name)}">` : escapeHtml(p.name)}
+          </a>`).join('')}
+      </div>
+    </div>`
+
+  $('title-watch').innerHTML = group('Stream', watch.flatrate) + group('Rent', watch.rent) + group('Buy', watch.buy)
+}
+
+/* ---------- torrents (moviesapi) ---------- */
+
+function torrentRowHtml (t) {
+  const meta = [t.seeders != null ? `▲${t.seeders}` : null, t.leechers != null ? `▼${t.leechers}` : null, t.size ? bytes(t.size) : null]
+    .filter(Boolean).join(' · ')
+  return `
+    <div class="torrent-row">
+      <span class="torrent-name" title="${escapeHtml(t.filename || '')}">${escapeHtml(t.filename || 'Untitled')}</span>
+      <span class="torrent-meta">${meta}</span>
+      <button class="btn small" data-magnet="${escapeHtml(t.magnet)}">Add</button>
+    </div>`
+}
+
+function renderTorrents (results) {
+  $('torrents-list').innerHTML = results.length
+    ? results.map(torrentRowHtml).join('')
+    : '<div class="dir-empty">No torrents found</div>'
+}
+
+let torrentSearchToken = 0
+
+async function findTorrents (query, category, label) {
+  const token = ++torrentSearchToken
+  const status = $('torrents-status')
+  const button = $('btn-find-torrents')
+  button.disabled = true
+  status.className = 'torrents-status'
+  status.textContent = `Searching for "${label}"…`
+  $('torrents-list').innerHTML = ''
+  $('title-torrents-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+
+  try {
+    const { results } = await api(`/api/torrents/search?q=${encodeURIComponent(query)}&type=${category === 'tv' ? 'tv' : 'movie'}`)
+    if (token !== torrentSearchToken) return // superseded by a later search
+    status.textContent = results.length ? `${results.length} found for "${label}"` : `No torrents found for "${label}"`
+    renderTorrents(results)
+  } catch (err) {
+    if (token !== torrentSearchToken) return
+    status.className = 'torrents-status error'
+    status.textContent = err.message
+  } finally {
+    if (token === torrentSearchToken) button.disabled = false
+  }
+}
+
+$('btn-find-torrents').addEventListener('click', () => {
+  if (!pageData) return
+  const query = pageData.type === 'movie' ? movieName(pageData).replace(/\./g, ' ') : pageData.title
+  findTorrents(query, pageData.type === 'tv' ? 'tv' : 'movies', pageData.title)
+})
+
+$('torrents-list').addEventListener('click', async event => {
+  const button = event.target.closest('[data-magnet]')
+  if (!button) return
+  button.disabled = true
+  try {
+    const result = await api('/api/torrents', {
+      method: 'POST',
+      body: JSON.stringify({ magnet: button.dataset.magnet })
+    })
+    if (result.added) {
+      button.textContent = 'Added'
+      toast('Added to the queue', 'ok')
+    } else {
+      button.disabled = false
+      toast(result.skipped?.[0]?.reason || result.failed?.[0]?.reason || 'Could not add', 'error')
+    }
+  } catch (err) {
+    button.disabled = false
+    toast(err.message, 'error')
+  }
+})
+
+function renderTitlePage (data) {
+  $('title-name').textContent = data.title
+  $('title-backdrop').style.backgroundImage = data.backdrop ? `url("${data.backdrop}")` : 'none'
+  if (data.poster) { $('title-poster').src = data.poster } else { $('title-poster').removeAttribute('src') }
+
+  const bits = []
+  if (data.year) bits.push(data.year)
+  if (data.type === 'movie' && data.runtime) bits.push(`${data.runtime} min`)
+  if (data.type === 'tv' && data.seasonCount) bits.push(`${data.seasonCount} season${data.seasonCount === 1 ? '' : 's'}`)
+  if (data.rating?.average) bits.push(`★ ${data.rating.average.toFixed(1)} (${data.rating.count.toLocaleString()})`)
+  if (data.genres.length) bits.push(data.genres.join(', '))
+  $('title-meta').textContent = bits.join(' · ')
+
+  field($('title-tagline'), data.tagline)
+  $('title-overview').textContent = data.overview
+
+  const trailerBtn = $('title-trailer')
+  if (data.trailer) {
+    trailerBtn.href = data.trailer.url
+    trailerBtn.hidden = false
+  } else {
+    trailerBtn.hidden = true
+    trailerBtn.removeAttribute('href')
+  }
+
+  renderNaming(data)
+  renderCast(data.cast)
+  renderWatch(data.watch)
+}
+
+async function showTitlePage (type, id) {
+  $('app-main').hidden = true
+  $('title-page').hidden = false
+  window.scrollTo(0, 0)
+
+  $('title-name').textContent = 'Loading…'
+  $('title-meta').textContent = ''
+  $('title-overview').textContent = ''
+  $('title-backdrop').style.backgroundImage = 'none'
+  $('title-poster').removeAttribute('src')
+  field($('title-tagline'), null)
+  $('title-trailer').hidden = true
+  $('title-trailer').removeAttribute('href')
+  $('title-naming').innerHTML = ''
+  $('title-cast-section').hidden = true
+  $('title-watch-section').hidden = true
+  $('torrents-list').innerHTML = ''
+  $('torrents-status').className = 'torrents-status'
+  $('torrents-status').textContent = ''
+  $('btn-find-torrents').disabled = false
+
+  try {
+    const data = await api(`/api/browse/title/${type}/${id}`)
+    pageData = data
+    renderTitlePage(data)
+  } catch (err) {
+    $('title-name').textContent = 'Could not load'
+    $('title-overview').textContent = err.message
+  }
+}
+
+function parseRoute () {
+  if (location.hash === '#/browse') return { page: 'browse' }
+  if (location.hash === '#/files') return { page: 'files' }
+  const m = /^#\/title\/(movie|tv)\/(\d+)$/.exec(location.hash)
+  if (m) return { page: 'title', type: m[1], id: Number(m[2]) }
+  return { page: 'home' }
+}
+
+let lastPage = 'home' // where "← Back" on the title page should return to
+
+function applyRoute () {
+  const route = parseRoute()
+  $('app-main').hidden = route.page !== 'home'
+  $('media-page').hidden = route.page !== 'browse'
+  $('files-page').hidden = route.page !== 'files'
+  $('title-page').hidden = route.page !== 'title'
+
+  const activeNav = route.page === 'title' ? lastPage : route.page
+  $('nav-torrents').classList.toggle('active', activeNav === 'home')
+  $('nav-browse').classList.toggle('active', activeNav === 'browse')
+  $('nav-files').classList.toggle('active', activeNav === 'files')
+
+  if (route.page === 'browse') {
+    window.scrollTo(0, 0)
+    loadNetworkChips()
+    if (!mediaResults.length) loadTrending()
+  } else if (route.page === 'files') {
+    window.scrollTo(0, 0)
+    loadFileLibraries()
+  } else if (route.page === 'title') {
+    showTitlePage(route.type, route.id)
+  }
+
+  if (route.page !== 'title') lastPage = route.page
+}
+
+window.addEventListener('hashchange', applyRoute)
+
+$('title-back').addEventListener('click', event => {
+  event.preventDefault()
+  location.hash = lastPage === 'browse' ? '#/browse' : ''
+})
+
+$('title-page').addEventListener('click', event => {
+  const btn = event.target.closest('[data-copy]')
+  if (btn) copyText(btn.dataset.copy)
+})
+
 /* ---------- go ---------- */
 
 api('/api/state').then(s => { state = s; render() }).catch(() => {})
 connect()
+applyRoute()

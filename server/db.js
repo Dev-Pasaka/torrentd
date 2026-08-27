@@ -131,6 +131,7 @@ export const q = {
   maxPosition: db.prepare('SELECT COALESCE(MAX(position), 0) AS p FROM torrents'),
 
   setStatus: db.prepare('UPDATE torrents SET status = ? WHERE id = ?'),
+  setSavePath: db.prepare('UPDATE torrents SET save_path = ? WHERE id = ?'),
   setError: db.prepare("UPDATE torrents SET status = 'error', error = ? WHERE id = ?"),
   setPosition: db.prepare('UPDATE torrents SET position = ? WHERE id = ?'),
 

@@ -4,6 +4,7 @@ import path from 'node:path'
 import WebTorrent from 'webtorrent'
 import parseTorrent from 'parse-torrent'
 import { q, getSettings, getSetting } from './db.js'
+import * as files from './files.js'
 
 // Public trackers appended to every torrent. Bare magnets (xt only, no `tr`)
 // often have no announce list at all and would otherwise rely on DHT alone.
@@ -222,6 +223,41 @@ export class DownloadManager extends EventEmitter {
     q.delete.run(id)
     this.emit('change')
     this.pump()
+  }
+
+  /**
+   * Moves a finished download's files into a library folder (see files.js).
+   * Only for 'done' items — moving files out from under an in-progress
+   * download would corrupt it. A still-seeding torrent is detached first
+   * (its files stay put until this actually moves them).
+   */
+  async relocate (id, { destLibrary, destPath }) {
+    const row = q.byId.get(id)
+    if (!row) throw new Error('No such item')
+    if (row.status !== 'done') throw new Error('Only finished downloads can be moved')
+
+    const base = path.resolve(row.save_path)
+    const target = path.resolve(base, row.name)
+    if (!(target.startsWith(base + path.sep) && target !== base)) {
+      throw new Error('Refusing to move a path outside the save folder')
+    }
+
+    const source = files.locate(target)
+    if (!source) {
+      const err = new Error("This download's folder isn't inside a configured library (LIBRARY_DIRS) — add it there to enable moving")
+      err.status = 400
+      throw err
+    }
+
+    const torrent = this.active.get(id)
+    if (torrent) {
+      await new Promise(resolve => { try { torrent.destroy({ destroyStore: false }, resolve) } catch { resolve() } })
+      this.active.delete(id)
+    }
+
+    const { destDirReal } = await files.move(source, { library: destLibrary, path: destPath })
+    q.setSavePath.run(destDirReal, id)
+    this.emit('change')
   }
 
   /** Moves an item up or down the queue by swapping positions with its neighbour. */

@@ -10,6 +10,9 @@ import { WebSocketServer } from 'ws'
 import { initSettings, getSettings, setSetting, hashPassword, q } from './db.js'
 import { basicAuth, issueToken, consumeToken } from './auth.js'
 import { DownloadManager } from './manager.js'
+import * as tmdb from './tmdb.js'
+import * as rarbg from './rarbg.js'
+import * as files from './files.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PUBLIC_DIR = path.join(__dirname, '..', 'public')
@@ -58,6 +61,12 @@ app.post('/api/torrents', wrap(async (req, res) => {
     .json({ added: added.length, skipped, failed })
 }))
 
+app.post('/api/torrents/:id/relocate', wrap(async (req, res) => {
+  const { destLibrary, destPath } = req.body || {}
+  await manager.relocate(Number(req.params.id), { destLibrary, destPath: destPath || '' })
+  res.json({ ok: true })
+}))
+
 app.post('/api/torrents/:id/:action', wrap((req, res) => {
   const id = Number(req.params.id)
   const { action } = req.params
@@ -80,6 +89,13 @@ app.delete('/api/torrents/:id', wrap((req, res) => {
 app.post('/api/clear-completed', wrap((req, res) => {
   manager.clearCompleted()
   res.json({ ok: true })
+}))
+
+app.get('/api/torrents/search', wrap(async (req, res) => {
+  const query = String(req.query.q || '').trim()
+  if (!query) return res.status(400).json({ error: 'q is required' })
+  const category = req.query.type === 'tv' ? 'tv' : 'movies'
+  res.json({ results: await rarbg.search({ query, category }) })
 }))
 
 /* ---------- settings ---------- */
@@ -126,6 +142,39 @@ app.put('/api/settings', wrap(async (req, res) => {
   manager.pump()
   manager.emit('change')
   res.json({ ...getSettings(), credentialsChanged: Boolean(password || username) })
+}))
+
+/* ---------- movie/show lookup (metadata only, for Jellyfin-style naming) ---------- */
+
+app.get('/api/browse/trending', wrap(async (req, res) => {
+  res.json({ results: await tmdb.trending() })
+}))
+
+app.get('/api/browse/search', wrap(async (req, res) => {
+  const query = String(req.query.q || '').trim()
+  if (!query) return res.json({ results: [] })
+  const type = ['movie', 'tv'].includes(req.query.type) ? req.query.type : 'multi'
+  res.json({ results: await tmdb.search(query, type) })
+}))
+
+app.get('/api/browse/tv/:id/season/:season', wrap(async (req, res) => {
+  res.json(await tmdb.tvSeason(Number(req.params.id), Number(req.params.season)))
+}))
+
+app.get('/api/browse/networks', (req, res) => res.json({ networks: tmdb.NETWORKS }))
+
+app.get('/api/browse/network/:id', wrap(async (req, res) => {
+  const id = Number(req.params.id)
+  const network = tmdb.NETWORKS.find(n => n.id === id)
+  if (!network) return res.status(400).json({ error: 'Unknown network id' })
+  res.json({ network, results: await tmdb.byNetwork(id) })
+}))
+
+app.get('/api/browse/title/:type/:id', wrap(async (req, res) => {
+  const { type, id } = req.params
+  if (type !== 'movie' && type !== 'tv') return res.status(400).json({ error: 'type must be "movie" or "tv"' })
+  const region = req.query.region ? String(req.query.region).toUpperCase() : undefined
+  res.json(await tmdb.titleDetails(type, Number(id), region))
 }))
 
 /* ---------- host filesystem browser (for picking a download folder) ---------- */
@@ -177,11 +226,44 @@ app.post('/api/fs/mkdir', wrap(async (req, res) => {
   res.json({ path: target })
 }))
 
+/* ---------- media library file manager (scoped to LIBRARY_DIRS, unlike /api/fs above) ---------- */
+
+app.get('/api/files/libraries', (req, res) => res.json({ libraries: files.listLibraries() }))
+
+app.get('/api/files/list', wrap((req, res) => {
+  const library = String(req.query.library || '')
+  const dirPath = String(req.query.path || '')
+  res.json({ entries: files.list(library, dirPath) })
+}))
+
+app.post('/api/files/mkdir', wrap(async (req, res) => {
+  const { library, path: dirPath, name } = req.body || {}
+  await files.mkdir(library, dirPath, name)
+  res.json({ ok: true })
+}))
+
+app.delete('/api/files/item', wrap(async (req, res) => {
+  const library = String(req.query.library || '')
+  const dirPath = String(req.query.path || '')
+  await files.remove(library, dirPath)
+  res.json({ ok: true })
+}))
+
+app.post('/api/files/copy', wrap(async (req, res) => {
+  const { srcLibrary, srcPath, destLibrary, destPath } = req.body || {}
+  res.json({ ok: true, ...await files.copy({ library: srcLibrary, path: srcPath }, { library: destLibrary, path: destPath }) })
+}))
+
+app.post('/api/files/move', wrap(async (req, res) => {
+  const { srcLibrary, srcPath, destLibrary, destPath } = req.body || {}
+  res.json({ ok: true, ...await files.move({ library: srcLibrary, path: srcPath }, { library: destLibrary, path: destPath }) })
+}))
+
 /* ---------- errors ---------- */
 
 app.use((err, req, res, next) => {
   console.error('[api]', err.message)
-  res.status(400).json({ error: err.message })
+  res.status(err.status || 400).json({ error: err.message })
 })
 
 /* ---------- websocket ---------- */

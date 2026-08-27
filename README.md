@@ -223,6 +223,77 @@ Environment variables, all optional:
 | `TORRENTD_USER` / `TORRENTD_PASS` | generated | Seed the login instead of generating one |
 | `TORRENT_PORT` / `DHT_PORT` | random | Pin the BitTorrent peer / DHT ports if you want to forward them |
 | `NAT_UPNP` / `NAT_PMP` | off | Set to `1` to enable UPnP / NAT-PMP port mapping — see below |
+| `TMDB_API_KEY` | unset | Enables the **Browse** tab (see below). Leave blank to disable it — everything else works without it |
+| `MOVIESAPI_URL` | `http://moviesapi:8000` | Where the [moviesapi](./moviesapi) service lives, for torrent search on a title's page — see below |
+| `LIBRARY_DIRS` | `Downloads:/downloads` | Named `Name:/path` roots the **Files** page can browse/delete/copy/move within — see below |
+
+## Browse: movie & TV search
+
+The **Browse** button opens a search over movies and TV shows (trending list,
+poster grid, search-as-you-type) backed by [TMDB](https://www.themoviedb.org/).
+That part is metadata only — no torrent search, no magnet links, no automatic
+downloading. Selecting a title opens its own page with the overview, rating,
+genres, cast, and **where to watch or buy it legally** (streaming/rental/
+purchase providers, via TMDB's JustWatch-backed data) — click a provider to
+go to its JustWatch listing.
+
+That page also has a **Copy** button that puts a Jellyfin-friendly name on
+your clipboard: `Movie.Title.2024` for a movie, `Show.Name.S01E09` for a TV
+episode (pick the season from the dropdown). Use that as the filename when
+you rename or organize media you already have the rights to, so Jellyfin's
+scanner picks it up correctly.
+
+Needs a free **API Read Access Token** (v4 auth, a long JWT — not the shorter
+v3 API key) from <https://www.themoviedb.org/settings/api> — set
+`TMDB_API_KEY` in `.env`. Without it the Browse tab shows an error and
+everything else in the app keeps working as normal.
+
+The same title page also has a **Torrents** section with a **Find torrents**
+button, separate from the TMDB metadata above. Clicking it calls
+`server/rarbg.js`, which asks the [moviesapi](./moviesapi) service (a second
+container in `docker-compose.yml`) to search [rargb.to](https://rargb.to), a
+live RARBG-style mirror — RARBG's own API has been dead since 2023, so
+moviesapi scrapes rargb.to's HTML directly. Results show seeders/leechers/size
+with an **Add** button that queues the magnet the same way pasting one does.
+Being a scrape rather than a documented API, it can break if rargb.to changes
+its markup; failures surface inline as an error instead of hanging.
+
+## Files: organize downloads into a library
+
+The **Files** page browses, deletes, copies, and moves files — but only inside
+directories you've explicitly opted in, via `LIBRARY_DIRS` in `.env`
+(`Name:/container/path` pairs, comma-separated; defaults to just
+`Downloads:/downloads`). This is deliberately not a general host filesystem
+browser: every path from the page is resolved against one of those named
+roots and verified — via `realpath`, so a symlink can't be used to step
+outside it either — to still be inside it before anything touches disk. It
+can't reach `/etc`, your home directory, or anything else on the container's
+filesystem, let alone the host's, except what you've named here.
+
+To add a second library (say, an organized media folder separate from the
+download staging area), mount it in `docker-compose.yml` and add a matching
+entry to `LIBRARY_DIRS`:
+
+```yaml
+volumes:
+  - "/mnt/tank/movies:/media/movies"
+```
+```env
+LIBRARY_DIRS=Downloads:/downloads,Movies:/media/movies
+```
+
+Copy and move both work across libraries — e.g. moving a finished download
+from `Downloads` into `Movies` — and moving across a real filesystem boundary
+(different volume mounts) falls back to copy-then-delete since `rename(2)`
+can't cross devices. Deleting a file or folder asks for confirmation in the
+UI; there's no undo.
+
+A finished download in the main queue also gets a 🗂 **Move** button, so you
+don't have to go find it on the Files page first — it opens the same
+destination picker. It only appears once a download is `done`, and only works
+if that download's folder is inside a `LIBRARY_DIRS` root (which it is by
+default, since `Downloads` covers `/downloads`). A torrent still seeding is
+detached from the client first so the move doesn't race an open file handle.
 
 ## How it works
 
@@ -278,6 +349,9 @@ to. Forward `BT_PORT` (TCP) and `DHT_PORT` (UDP) on your router, or set
 - Anyone who can log in can browse the server's directory tree (folder names
   only, not file contents) and write downloads anywhere the server process can
   write. That is inherent to letting the UI pick a destination folder.
+- Anyone who can log in can also delete, copy, and move files on the **Files**
+  page — but only inside `LIBRARY_DIRS` roots, not anywhere else the server
+  process can write. Deletes have no undo.
 - `npm audit` reports 4 high-severity advisories, all the same one: the `ip`
   package's `isPublic` misclassifies some encodings of private addresses
   (GHSA-2p57-rm9w-gvfp). It reaches us transitively through
@@ -300,8 +374,13 @@ server/
   manager.js  WebTorrent client, the one-at-a-time queue, live stats
   db.js       SQLite schema, settings, prepared statements
   auth.js     Basic auth + WebSocket handshake tokens
+  tmdb.js     TMDB client for the Browse tab (movie/show metadata only)
+  rarbg.js    Proxy to the moviesapi service, for torrent search
+  files.js    Library file manager, scoped to LIBRARY_DIRS (Files page)
 public/       the UI (no build step, no framework)
 data/         torrentd.db (gitignored)
+moviesapi/    FastAPI service that scrapes rargb.to for torrent search — separate
+              Python service, own README, own Dockerfile
 ```
 
 `old-kotlin/` holds an earlier Ktor prototype, kept for reference; nothing in
