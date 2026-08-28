@@ -419,7 +419,10 @@ document.addEventListener('keydown', event => {
 
 /* ---------- settings ---------- */
 
-$('btn-settings').addEventListener('click', async () => {
+// Delegated for the same reason as the nav handler above — both nav bars
+// have a "Settings" entry marked with data-open-settings.
+document.addEventListener('click', async event => {
+  if (!event.target.closest('[data-open-settings]')) return
   try {
     const s = await api('/api/settings')
     $('s-path').value = s.downloadPath
@@ -893,9 +896,13 @@ async function loadNetwork (id) {
   renderMediaGrid()
 }
 
-$('nav-browse').addEventListener('click', () => { location.hash = '#/browse' })
-$('nav-torrents').addEventListener('click', () => { location.hash = '' })
-$('nav-files').addEventListener('click', () => { location.hash = '#/files' })
+// Delegated so it covers both .topnav (desktop) and .bottom-nav (mobile) —
+// they share the same data-nav values rather than duplicating handlers.
+const NAV_HASH = { home: '', browse: '#/browse', files: '#/files' }
+document.addEventListener('click', event => {
+  const navBtn = event.target.closest('[data-nav]')
+  if (navBtn) location.hash = NAV_HASH[navBtn.dataset.nav]
+})
 
 $('media-back').addEventListener('click', event => {
   event.preventDefault()
@@ -1219,9 +1226,9 @@ function applyRoute () {
   $('title-page').hidden = route.page !== 'title'
 
   const activeNav = route.page === 'title' ? lastPage : route.page
-  $('nav-torrents').classList.toggle('active', activeNav === 'home')
-  $('nav-browse').classList.toggle('active', activeNav === 'browse')
-  $('nav-files').classList.toggle('active', activeNav === 'files')
+  document.querySelectorAll('[data-nav]').forEach(el => {
+    el.classList.toggle('active', el.dataset.nav === activeNav)
+  })
 
   if (route.page === 'browse') {
     window.scrollTo(0, 0)

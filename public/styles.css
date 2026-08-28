@@ -116,6 +116,39 @@ body {
 .stat-value.down { color: var(--green); }
 .stat-value.up { color: var(--purple); }
 
+/* ---------- bottom tab bar (mobile only — see the max-width:720px block) ---------- */
+
+.bottom-nav {
+  display: none;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  background: color-mix(in srgb, var(--bg-elev) 94%, transparent);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border);
+}
+.bottom-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 9px 4px 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+.bottom-nav-item svg { transition: transform .15s; }
+.bottom-nav-item.active { color: var(--accent); }
+.bottom-nav-item:active svg { transform: scale(.88); }
+
 /* ---------- layout ---------- */
 
 main {
@@ -931,47 +964,133 @@ input:focus, select:focus {
 }
 
 @media (max-width: 720px) {
-  /* top bar: brand, then nav, then stats — each its own full-width row */
-  .topbar { flex-wrap: wrap; gap: 10px; padding: 12px 16px; }
-  .topnav { order: 2; width: 100%; justify-content: space-between; }
+  /* Primary nav moves to the fixed bottom tab bar; the top bar keeps just
+     brand + live stats, so it stays a single tidy row instead of stacking
+     three. Reserve space at the foot of every page so content can't end up
+     under the fixed bar, and account for a phone's home-indicator inset. */
+  :root { --bottom-nav-h: 58px; }
+
+  .topnav { display: none; }
+  .bottom-nav { display: flex; }
+
+  .topbar { padding: 12px 16px; gap: 12px; }
   .globals {
-    gap: 14px;
-    width: 100%;
-    margin-left: 0;
-    order: 3;
+    gap: 16px;
     flex-wrap: nowrap;
     overflow-x: auto;
-    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
   }
   .stat { flex-shrink: 0; }
 
-  main { padding: 16px 16px 60px; }
+  main {
+    padding: 16px 16px calc(24px + var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+  }
+  .title-page, .media-page {
+    padding-bottom: calc(24px + var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+  }
+
   .two-col { grid-template-columns: 1fr; }
-  .item-top { flex-wrap: wrap; }
 
-  .list-head { flex-direction: column; align-items: flex-start; }
+  /* ---- add card: one clear full-width action instead of a squeezed row ---- */
+  .add-actions { flex-direction: column-reverse; align-items: stretch; }
+  .add-actions .btn { justify-content: center; padding: 11px; }
+  .hint { text-align: center; }
 
-  /* title page / browse page / files page share this content wrapper */
+  /* ---- filter/category chip rows: one scrollable line, not a wrapped block ---- */
+  .list-head { flex-direction: column; align-items: stretch; gap: 10px; }
+  .list-head .tabs, .media-search-row .tabs, #library-tabs, #dest-library-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+  }
+  .list-head .tabs .tab, .media-search-row .tabs .tab { flex-shrink: 0; }
+  #btn-clear { align-self: flex-end; }
+
+  /* ---- torrent queue cards: actions become their own full-width toolbar
+     instead of squeezed in next to the title, via a flex-wrap trick — no
+     markup change needed, .actions just claims the whole next line. ---- */
+  .item { padding: 14px; }
+  .item-top { flex-wrap: wrap; row-gap: 10px; }
+  .item-name { font-size: 15px; }
+  .item-top .actions {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: stretch;
+    gap: 6px;
+    padding-top: 10px;
+    margin-top: 2px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .item-top .actions .icon-btn {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    padding: 9px 4px;
+    border-radius: 6px;
+    background: var(--bg-elev-2);
+  }
+  .meta { row-gap: 6px; }
+
+  /* ---- title page: tighter hero, full-width trailer button ---- */
+  .title-backdrop { height: 26vh; min-height: 160px; }
   .title-content, .media-content { padding: 0 16px; }
-  .title-head { flex-direction: column; align-items: flex-start; margin-top: -48px; }
-  .title-poster { width: 100px; }
-  .title-head-info h2 { font-size: 20px; }
+  .title-head { flex-direction: column; align-items: flex-start; margin-top: -44px; gap: 12px; }
+  .title-poster { width: 96px; }
+  .title-head-info h2 { font-size: 19px; }
+  .trailer-btn { display: flex; justify-content: center; width: 100%; }
+  .title-overview { max-width: none; }
 
   .season-row { flex-direction: column; align-items: stretch; }
   .season-select { max-width: none; }
+  #btn-find-season { width: 100%; justify-content: center; }
 
   .media-search-row { flex-direction: column; align-items: stretch; }
+
+  /* ---- media grid: a deliberate 2-column layout beats auto-fill leaving an
+     awkward lone narrow column on phone widths ---- */
+  .media-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
 
   /* row-style lists: name gets a real floor so seeders/size/date and the
      action buttons wrap to their own row instead of getting crushed */
   .file-name, .torrent-name, .episode-label { min-width: 90px; }
+  .file-actions, .torrents-toolbar { width: 100%; }
+  .file-actions { justify-content: flex-end; }
 
-  .toasts { left: 16px; right: 16px; max-width: none; }
+  .torrents-toolbar { align-items: stretch; }
+  .torrents-toolbar #btn-find-torrents { width: 100%; justify-content: center; }
+  .field-inline { flex-basis: 100%; justify-content: space-between; }
+  .field-inline select { flex: 1; }
+  .torrents-status { flex-basis: 100%; }
+
+  /* ---- modals become a bottom sheet: the native mobile pattern, and it
+     avoids the wasted top/bottom margins a centered dialog leaves on a
+     phone screen ---- */
+  .modal-backdrop { align-items: flex-end; padding: 0; }
+  .modal {
+    max-width: none;
+    max-height: 86vh;
+    border-radius: 16px 16px 0 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    animation: sheet-up .2s ease-out;
+  }
+  @keyframes sheet-up {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+
+  .toasts {
+    left: 16px;
+    right: 16px;
+    max-width: none;
+    bottom: calc(16px + var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+  }
 
   .icon-btn { padding: 8px 10px; font-size: 16px; }
 }
 
-@media (max-width: 480px) {
-  .topnav-item span { display: none; }
-  .topnav-item { padding: 8px 12px; }
+@media (max-width: 380px) {
+  .media-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .globals { gap: 12px; }
+  .stat-value { font-size: 13px; }
 }
