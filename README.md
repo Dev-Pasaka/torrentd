@@ -266,12 +266,12 @@ The same title page also has a **Torrents** section with a **Find torrents**
 button and an **Engine** picker, separate from the TMDB metadata above.
 Clicking it calls `server/rarbg.js`, which asks the [moviesapi](./moviesapi)
 service (a second container in `docker-compose.yml`) to search one of its
-configured engines — today just [rargb.to](https://rargb.to), a live
-RARBG-style mirror, since RARBG's own API has been dead since 2023. Leave the
-engine on **Auto** to have moviesapi try each configured engine in turn and
-return the first one with a match; pick one by name to search only that
-source. Results show seeders/leechers/size with an **Add** button that queues
-the magnet the same way pasting one does. Being a scrape rather than a
+configured engines — [rargb.to](https://rargb.to), a live RARBG-style mirror
+(RARBG's own API has been dead since 2023), and [bitsearch.eu](https://bitsearch.eu).
+Leave the engine on **Auto** to have moviesapi try each configured engine in
+turn and return the first one with a match; pick one by name to search only
+that source. Results show seeders/leechers/size with an **Add** button that
+queues the magnet the same way pasting one does. Being a scrape rather than a
 documented API, an engine can break if its site changes markup; failures
 surface inline as an error instead of hanging. See
 [moviesapi's README](./moviesapi/README.md#engines) for what it takes to add

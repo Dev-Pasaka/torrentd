@@ -85,10 +85,9 @@ def list_engines():
 
 @app.get("/categories")
 def categories():
-    # rargb is the only engine today, so its category list is also the
-    # overall one; this becomes an intersection (or a per-engine map) once a
-    # second engine with a different category set is added.
-    return engines.ENGINES[engines.FALLBACK_ORDER[0]].CATEGORIES
+    # Categories are per-engine (e.g. bitsearch has no "documentaries"), so
+    # this reports each engine's own list rather than one shared set.
+    return {slug: mod.CATEGORIES for slug, mod in engines.ENGINES.items()}
 
 
 @app.get("/search", response_model=SearchResult)

@@ -16,15 +16,19 @@ that a simple scraper can't and shouldn't try to get through.
 
 from typing import List, Optional
 
-from . import rargb
+from . import bitsearch, rargb
 from .errors import ScrapeError
 
 ENGINES = {
     rargb.SLUG: rargb,
+    bitsearch.SLUG: bitsearch,
 }
 
-# Order fallback tries engines in when the caller doesn't pick one.
-FALLBACK_ORDER = [rargb.SLUG]
+# Order fallback tries engines in when the caller doesn't pick one. rargb goes
+# first since it also supports the empty-query "browse latest" mode that
+# /movies/latest uses; bitsearch requires a real search term (see its
+# module docstring) so it's only reached for an actual query.
+FALLBACK_ORDER = [rargb.SLUG, bitsearch.SLUG]
 
 
 def list_engines() -> List[dict]:
@@ -57,8 +61,12 @@ def search(
         mod = ENGINES[slug]
         try:
             results = mod.search(query=query, category=category, sort=sort, limit=limit)
-        except ScrapeError as exc:
-            last_error = exc  # this engine is down — try the next one
+        except (ScrapeError, ValueError) as exc:
+            # ScrapeError: this engine is down. ValueError: this request
+            # doesn't suit this engine (e.g. bitsearch needs a non-empty
+            # query) — either way, try the next one rather than failing the
+            # whole auto search over one engine's quirk.
+            last_error = exc
             continue
         if results:
             return {"engine": slug, "results": results}
