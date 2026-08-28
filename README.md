@@ -205,8 +205,9 @@ TORRENTD_USER=me TORRENTD_PASS=something-long npm start
    to walk the server's filesystem and create folders.
 2. Paste one or more magnet links into the box (one per line) and hit
    **Add to queue** (or ⌘/Ctrl + Enter).
-3. Items download **one at a time** in queue order. The UI updates once a second
-   over a WebSocket.
+3. Up to 10 items download **in parallel** (adjustable in Settings — see
+   below); anything past that limit waits in queue order. The UI updates once
+   a second over a WebSocket.
 
 Per item you can pause, resume, retry a failure, move it up or down the queue,
 and remove it. Removing asks whether to delete the downloaded files or keep them.
@@ -222,7 +223,7 @@ Everything in Settings is stored in SQLite and survives a restart.
 | Setting | Meaning |
 | --- | --- |
 | Download folder | Where files land, on the machine running the server. Created if missing. |
-| Concurrent downloads | 1–10. `1` means strictly one at a time. |
+| Concurrent downloads | 1–10, default 10. Set to `1` to force strictly one at a time. |
 | After finishing | *Stop* frees the slot immediately. *Keep seeding* shares completed files back until you remove them. |
 | Username / password | HTTP Basic credentials. The password is stored scrypt-hashed. |
 

@@ -88,7 +88,7 @@ export function initSettings () {
   if (getSetting('download_path') === null) {
     setSetting('download_path', process.env.DOWNLOAD_DIR || DEFAULT_DOWNLOAD_PATH)
   }
-  if (getSetting('max_concurrent') === null) setSetting('max_concurrent', '1')
+  if (getSetting('max_concurrent') === null) setSetting('max_concurrent', '10')
   if (getSetting('seed_after_download') === null) setSetting('seed_after_download', '0')
 
   if (getSetting('auth_user') === null || getSetting('auth_hash') === null) {
@@ -105,7 +105,7 @@ export function initSettings () {
 export function getSettings () {
   return {
     downloadPath: getSetting('download_path', DEFAULT_DOWNLOAD_PATH),
-    maxConcurrent: Number(getSetting('max_concurrent', '1')),
+    maxConcurrent: Number(getSetting('max_concurrent', '10')),
     seedAfterDownload: getSetting('seed_after_download', '0') === '1',
     username: getSetting('auth_user', 'admin')
   }
