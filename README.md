@@ -309,6 +309,15 @@ from `Downloads` into `Movies` — and moving across a real filesystem boundary
 can't cross devices. Deleting a file or folder asks for confirmation in the
 UI; there's no undo.
 
+Checkboxes on each row select multiple files/folders at once — a selection
+bar appears with **Move…** and **Delete**, both applied to everything
+selected in one go. A partial failure (one file gone, one name collision)
+doesn't abort the rest: the toast reports how many succeeded and how many
+didn't. The destination picker used for move/copy also has its own **Create**
+field, so you can make a new folder without leaving the picker — it steps
+into the folder it just created, since that's almost always what you want
+next.
+
 A finished download in the main queue also gets a 🗂 **Move** button, so you
 don't have to go find it on the Files page first — it opens the same
 destination picker. It only appears once a download is `done`, and only works

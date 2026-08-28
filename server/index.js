@@ -264,6 +264,27 @@ app.post('/api/files/move', wrap(async (req, res) => {
   res.json({ ok: true, ...await files.move({ library: srcLibrary, path: srcPath }, { library: destLibrary, path: destPath }) })
 }))
 
+app.post('/api/files/bulk-delete', wrap(async (req, res) => {
+  const items = Array.isArray(req.body?.items) ? req.body.items : []
+  if (!items.length) return res.status(400).json({ error: 'items is required' })
+  const { ok, failed } = await files.removeMany(items)
+  res.json({ deleted: ok.length, failed })
+}))
+
+app.post('/api/files/bulk-move', wrap(async (req, res) => {
+  const { items, destLibrary, destPath } = req.body || {}
+  if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'items is required' })
+  const { ok, failed } = await files.moveMany(items, { library: destLibrary, path: destPath })
+  res.json({ moved: ok.length, failed })
+}))
+
+app.post('/api/files/bulk-copy', wrap(async (req, res) => {
+  const { items, destLibrary, destPath } = req.body || {}
+  if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'items is required' })
+  const { ok, failed } = await files.copyMany(items, { library: destLibrary, path: destPath })
+  res.json({ copied: ok.length, failed })
+}))
+
 /* ---------- errors ---------- */
 
 app.use((err, req, res, next) => {

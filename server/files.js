@@ -124,6 +124,28 @@ export async function remove (name, relPath) {
   await fsp.rm(real, { recursive: true })
 }
 
+/**
+ * Runs an item-at-a-time operation over a multi-select and collects
+ * per-item success/failure instead of letting one bad item (a stale
+ * selection, a name collision) abort the whole batch.
+ */
+async function eachItem (items, fn) {
+  const ok = []
+  const failed = []
+  for (const item of items) {
+    try {
+      ok.push({ item, ...(await fn(item)) })
+    } catch (err) {
+      failed.push({ item, reason: err.message })
+    }
+  }
+  return { ok, failed }
+}
+
+export const removeMany = items => eachItem(items, item => remove(item.library, item.path))
+export const moveMany = (items, dest) => eachItem(items, item => move(item, dest))
+export const copyMany = (items, dest) => eachItem(items, item => copy(item, dest))
+
 function planTransfer (src, dest) {
   const srcReal = resolveExisting(src.library, src.path)
   const destDirReal = resolveExisting(dest.library, dest.path)

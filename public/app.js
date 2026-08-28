@@ -529,7 +529,10 @@ $('btn-pick').addEventListener('click', () => {
 let libraries = []
 let currentLibrary = null
 let currentPath = ''
+let currentEntries = [] // last-fetched listing, re-rendered locally on selection changes (no refetch)
 let confirmingDelete = null // relative path of the row currently showing "delete this?"
+let selected = new Set() // relative paths selected for a bulk action, scoped to the current folder
+let confirmingBulkDelete = false
 
 const pathUp = p => p.split('/').filter(Boolean).slice(0, -1).join('/')
 const joinPath = (p, name) => (p ? `${p}/${name}` : name)
@@ -550,11 +553,39 @@ function fileRowHtml (entry) {
 
   return `
     <div class="file-row${entry.isDir ? ' file-row-dir' : ''}" data-path="${escapeHtml(rel)}" data-is-dir="${entry.isDir}">
+      <input type="checkbox" class="file-select" data-select="${escapeHtml(rel)}"${selected.has(rel) ? ' checked' : ''}>
       <span class="file-icon">${entry.isDir ? '📁' : '📄'}</span>
       <span class="file-name" title="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</span>
       <span class="file-meta">${meta}</span>
       <span class="file-actions">${actions}</span>
     </div>`
+}
+
+function renderSelectionBar () {
+  const bar = $('files-selection-bar')
+  bar.hidden = selected.size === 0
+  if (!selected.size) return
+
+  $('files-selection-count').textContent = `${selected.size} selected`
+  const allSelected = currentEntries.length > 0 && currentEntries.every(e => selected.has(joinPath(currentPath, e.name)))
+  $('files-select-all').checked = allSelected
+
+  bar.querySelector('.selection-actions').innerHTML = confirmingBulkDelete
+    ? `
+      <span class="file-confirm">Delete ${selected.size} item${selected.size === 1 ? '' : 's'} permanently?</span>
+      <button class="btn small danger" id="files-bulk-delete-confirm">Yes</button>
+      <button class="btn small ghost" id="files-bulk-delete-cancel">No</button>`
+    : `
+      <button class="btn small" id="files-bulk-move">Move…</button>
+      <button class="btn small danger" id="files-bulk-delete">Delete</button>
+      <button class="btn small ghost" id="files-clear-selection">Cancel</button>`
+}
+
+function renderFileList () {
+  $('files-list').innerHTML = currentEntries.length
+    ? currentEntries.map(fileRowHtml).join('')
+    : '<div class="dir-empty">Empty folder</div>'
+  renderSelectionBar()
 }
 
 async function ensureLibraries () {
@@ -576,7 +607,9 @@ async function loadFileLibraries () {
 
   if (!libraries.length) {
     $('files-msg').textContent = 'No library directories configured — set LIBRARY_DIRS to enable this page.'
+    currentEntries = []
     $('files-list').innerHTML = ''
+    $('files-selection-bar').hidden = true
     return
   }
   loadFiles('')
@@ -584,16 +617,17 @@ async function loadFileLibraries () {
 
 async function loadFiles (relPath) {
   confirmingDelete = null
+  confirmingBulkDelete = false
+  selected = new Set() // selections are scoped to one folder listing — navigating clears them
   const msg = $('files-msg')
   msg.textContent = ''
   try {
     const { entries } = await api(`/api/files/list?library=${encodeURIComponent(currentLibrary)}&path=${encodeURIComponent(relPath)}`)
     currentPath = relPath
+    currentEntries = entries
     $('files-path').textContent = `${currentLibrary}/${currentPath}`
     $('files-up').disabled = !currentPath
-    $('files-list').innerHTML = entries.length
-      ? entries.map(fileRowHtml).join('')
-      : '<div class="dir-empty">Empty folder</div>'
+    renderFileList()
   } catch (err) {
     msg.textContent = err.message
   }
@@ -631,7 +665,17 @@ $('files-mkdir').addEventListener('click', async () => {
   }
 })
 
+$('files-list').addEventListener('change', event => {
+  const box = event.target.closest('[data-select]')
+  if (!box) return
+  if (box.checked) selected.add(box.dataset.select)
+  else selected.delete(box.dataset.select)
+  renderSelectionBar()
+})
+
 $('files-list').addEventListener('click', event => {
+  if (event.target.closest('[data-select]')) return // handled by the 'change' listener above
+
   const confirmBtn = event.target.closest('[data-confirm-delete]')
   if (confirmBtn) {
     api(`/api/files/item?library=${encodeURIComponent(currentLibrary)}&path=${encodeURIComponent(confirmBtn.dataset.confirmDelete)}`, { method: 'DELETE' })
@@ -641,13 +685,13 @@ $('files-list').addEventListener('click', event => {
   }
   if (event.target.closest('[data-cancel-delete]')) {
     confirmingDelete = null
-    loadFiles(currentPath)
+    renderFileList()
     return
   }
   const deleteBtn = event.target.closest('[data-delete-item]')
   if (deleteBtn) {
     confirmingDelete = deleteBtn.dataset.deleteItem
-    loadFiles(currentPath)
+    renderFileList()
     return
   }
   const copyBtn = event.target.closest('[data-copy-item]')
@@ -657,6 +701,63 @@ $('files-list').addEventListener('click', event => {
 
   const row = event.target.closest('.file-row-dir')
   if (row) loadFiles(row.dataset.path)
+})
+
+/* ---------- multi-select bulk actions ---------- */
+
+$('files-select-all').addEventListener('change', event => {
+  if (event.target.checked) {
+    currentEntries.forEach(e => selected.add(joinPath(currentPath, e.name)))
+  } else {
+    selected.clear()
+  }
+  renderFileList()
+})
+
+$('files-selection-bar').addEventListener('click', event => {
+  if (event.target.closest('#files-clear-selection')) {
+    selected = new Set()
+    renderFileList()
+    return
+  }
+  if (event.target.closest('#files-bulk-delete')) {
+    confirmingBulkDelete = true
+    renderSelectionBar()
+    return
+  }
+  if (event.target.closest('#files-bulk-delete-cancel')) {
+    confirmingBulkDelete = false
+    renderSelectionBar()
+    return
+  }
+  if (event.target.closest('#files-bulk-delete-confirm')) {
+    const items = [...selected].map(p => ({ library: currentLibrary, path: p }))
+    api('/api/files/bulk-delete', { method: 'POST', body: JSON.stringify({ items }) })
+      .then(({ deleted, failed }) => {
+        toast(failed.length ? `Deleted ${deleted}, ${failed.length} failed` : `Deleted ${deleted}`, failed.length ? 'error' : 'ok')
+        loadFiles(currentPath)
+      })
+      .catch(err => { $('files-msg').textContent = err.message })
+    return
+  }
+  if (event.target.closest('#files-bulk-move')) {
+    const items = [...selected].map(p => ({ library: currentLibrary, path: p }))
+    openDestPicker({
+      title: `Move ${items.length} item${items.length === 1 ? '' : 's'} to…`,
+      confirmLabel: 'Move here',
+      initialLibrary: currentLibrary,
+      initialPath: currentPath,
+      onConfirm: async ({ destLibrary, destPath }) => {
+        const { moved, failed } = await api('/api/files/bulk-move', {
+          method: 'POST',
+          body: JSON.stringify({ items, destLibrary, destPath })
+        })
+        toast(failed.length ? `Moved ${moved}, ${failed.length} failed` : `Moved ${moved}`, failed.length ? 'error' : 'ok')
+        selected = new Set()
+        loadFiles(currentPath)
+      }
+    })
+  }
 })
 
 /* ---------- destination picker (shared: Files copy/move, torrent relocate) ---------- */
@@ -747,6 +848,22 @@ $('dest-list').addEventListener('click', event => {
 
 $('dest-up').addEventListener('click', () => loadDestFiles(pathUp(destPath)))
 $('dest-home').addEventListener('click', () => loadDestFiles(''))
+
+$('dest-mkdir').addEventListener('click', async () => {
+  const input = $('dest-new-folder')
+  const name = input.value.trim()
+  if (!name) return
+  try {
+    await api('/api/files/mkdir', {
+      method: 'POST',
+      body: JSON.stringify({ library: destLibrary, path: destPath, name })
+    })
+    input.value = ''
+    loadDestFiles(joinPath(destPath, name)) // step into the new folder — it's almost always the intended destination
+  } catch (err) {
+    $('dest-msg').textContent = err.message
+  }
+})
 
 $('dest-confirm').addEventListener('click', async () => {
   const button = $('dest-confirm')

@@ -253,6 +253,18 @@
         <code id="files-path" class="crumb"></code>
       </div>
 
+      <div class="selection-bar" id="files-selection-bar" hidden>
+        <label class="selection-all">
+          <input type="checkbox" id="files-select-all">
+          <span id="files-selection-count"></span>
+        </label>
+        <div class="selection-actions">
+          <button class="btn small" id="files-bulk-move">Move…</button>
+          <button class="btn small danger" id="files-bulk-delete">Delete</button>
+          <button class="btn small ghost" id="files-clear-selection">Cancel</button>
+        </div>
+      </div>
+
       <div id="files-list" class="browse-list files-list"></div>
 
       <div class="row mkdir-row">
@@ -279,6 +291,10 @@
           <code id="dest-path" class="crumb"></code>
         </div>
         <div id="dest-list" class="browse-list"></div>
+        <div class="row mkdir-row">
+          <input type="text" id="dest-new-folder" placeholder="New folder name">
+          <button class="btn ghost" id="dest-mkdir">Create</button>
+        </div>
       </div>
       <div class="modal-foot">
         <span class="modal-msg" id="dest-msg"></span>

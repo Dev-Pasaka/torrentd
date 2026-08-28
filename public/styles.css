@@ -540,6 +540,7 @@ input:focus, select:focus {
 .file-row-dir { cursor: pointer; }
 .file-row-dir:hover { background: var(--accent-soft); }
 
+.file-select { flex-shrink: 0; width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
 .file-icon { flex-shrink: 0; }
 .file-name {
   flex: 1;
@@ -556,6 +557,30 @@ input:focus, select:focus {
 }
 .file-actions { flex-shrink: 0; display: flex; align-items: center; gap: 4px; }
 .file-confirm { font-size: 12px; color: var(--text-dim); margin-right: 4px; white-space: nowrap; }
+
+.selection-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  margin-bottom: 10px;
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+.selection-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text);
+}
+.selection-all input { accent-color: var(--accent); cursor: pointer; }
+.selection-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 .btn.danger { background: var(--red); border-color: var(--red); color: #fff; }
 .btn.danger:hover { background: color-mix(in srgb, var(--red) 88%, #fff); }
@@ -1062,6 +1087,11 @@ input:focus, select:focus {
   .field-inline { flex-basis: 100%; justify-content: space-between; }
   .field-inline select { flex: 1; }
   .torrents-status { flex-basis: 100%; }
+
+  /* ---- bulk selection bar: select-all on its own line, actions spread evenly below ---- */
+  .selection-all { flex-basis: 100%; }
+  .selection-actions { width: 100%; }
+  .selection-actions .btn { flex: 1; justify-content: center; }
 
   /* ---- modals become a bottom sheet: the native mobile pattern, and it
      avoids the wasted top/bottom margins a centered dialog leaves on a
