@@ -91,11 +91,16 @@ app.post('/api/clear-completed', wrap((req, res) => {
   res.json({ ok: true })
 }))
 
+app.get('/api/torrents/engines', wrap(async (req, res) => {
+  res.json(await rarbg.listEngines())
+}))
+
 app.get('/api/torrents/search', wrap(async (req, res) => {
   const query = String(req.query.q || '').trim()
   if (!query) return res.status(400).json({ error: 'q is required' })
   const category = req.query.type === 'tv' ? 'tv' : 'movies'
-  res.json({ results: await rarbg.search({ query, category }) })
+  const engine = req.query.engine ? String(req.query.engine) : undefined
+  res.json(await rarbg.search({ query, category, engine }))
 }))
 
 /* ---------- settings ---------- */

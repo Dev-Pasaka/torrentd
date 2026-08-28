@@ -1065,11 +1065,28 @@ function renderTorrents (results) {
 }
 
 let torrentSearchToken = 0
+let torrentEngines = [] // [{slug, name}, ...] — loaded once, cached for the session
+
+async function loadTorrentEngines () {
+  if (torrentEngines.length) return
+  try {
+    const { engines } = await api('/api/torrents/engines')
+    torrentEngines = engines
+  } catch {
+    torrentEngines = []
+  }
+  const select = $('torrents-engine')
+  const current = select.value
+  select.innerHTML = '<option value="">Auto (try each)</option>' +
+    torrentEngines.map(e => `<option value="${escapeHtml(e.slug)}">${escapeHtml(e.name)}</option>`).join('')
+  select.value = current // keep whatever the user had picked, if it still exists
+}
 
 async function findTorrents (query, category, label) {
   const token = ++torrentSearchToken
   const status = $('torrents-status')
   const button = $('btn-find-torrents')
+  const engine = $('torrents-engine').value
   button.disabled = true
   status.className = 'torrents-status'
   status.textContent = `Searching for "${label}"…`
@@ -1077,9 +1094,13 @@ async function findTorrents (query, category, label) {
   $('title-torrents-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' })
 
   try {
-    const { results } = await api(`/api/torrents/search?q=${encodeURIComponent(query)}&type=${category === 'tv' ? 'tv' : 'movie'}`)
+    const query_ = `/api/torrents/search?q=${encodeURIComponent(query)}&type=${category === 'tv' ? 'tv' : 'movie'}${engine ? `&engine=${encodeURIComponent(engine)}` : ''}`
+    const { engine: usedEngine, results } = await api(query_)
     if (token !== torrentSearchToken) return // superseded by a later search
-    status.textContent = results.length ? `${results.length} found for "${label}"` : `No torrents found for "${label}"`
+    const engineName = torrentEngines.find(e => e.slug === usedEngine)?.name || usedEngine
+    status.textContent = results.length
+      ? `${results.length} found for "${label}" (${engineName})`
+      : `No torrents found for "${label}"${engine ? '' : ` (tried ${engineName})`}`
     renderTorrents(results)
   } catch (err) {
     if (token !== torrentSearchToken) return
@@ -1168,6 +1189,7 @@ async function showTitlePage (type, id) {
   $('torrents-status').className = 'torrents-status'
   $('torrents-status').textContent = ''
   $('btn-find-torrents').disabled = false
+  loadTorrentEngines()
 
   try {
     const data = await api(`/api/browse/title/${type}/${id}`)

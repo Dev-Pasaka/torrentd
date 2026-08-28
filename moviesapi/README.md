@@ -1,14 +1,23 @@
 # moviesapi
 
-A small FastAPI service that searches [rargb.to](https://rargb.to) (a live RARBG-style mirror)
-and resolves magnet links for the results.
+A small FastAPI service that searches torrent index sites ("engines", see `engines/`) and
+resolves magnet links for the results. Today the only engine is [rargb.to](https://rargb.to), a
+live RARBG-style mirror — RARBG's own API (torrentapi.org) has been dead since RARBG shut down in
+2023, so this talks to rargb.to's HTML search UI directly instead of a documented API. A search
+fetches the listing page, then visits each result's own detail page (5 at a time) to pull out its
+magnet link, since listing pages don't carry one. **This is scraping, not an API contract** —
+rargb.to can change its markup or block requests at any time without notice, which would break
+parsing here.
 
-RARBG's own API (torrentapi.org) has been dead since RARBG shut down in 2023, so this talks to
-rargb.to's HTML search UI directly (`scraper.py`) instead of a documented API. A search fetches
-the listing page, then visits each result's own detail page (5 at a time) to pull out its magnet
-link, since listing pages don't carry one. **This is scraping, not an API contract** — rargb.to
-can change its markup or block requests at any time without notice, which would break parsing
-here.
+## Engines
+
+`engines/` is a small registry so a caller can either let it try each configured engine in order
+(the default — stops at the first one with a match) or name a specific one via `?engine=<slug>`.
+See `engines/__init__.py` for the interface a new engine module needs, and the note there on why
+not every torrent index qualifies: sites behind an interactive bot-challenge (Cloudflare's
+"managed challenge" — ext.to and 1337x.to both are, as of writing) require defeating that
+challenge to scrape, which is out of scope regardless of how good a source the site would
+otherwise be.
 
 ## Run locally
 
@@ -35,13 +44,17 @@ docker run --rm -p 8000:8000 moviesapi
 | ------ | ----------------- | ---------------------------------------------------------------------|
 | GET    | `/`               | Service info                                                         |
 | GET    | `/health`         | Health check                                                         |
-| GET    | `/categories`     | Category slugs rargb.to accepts (`movies`, `tv`, `games`, ...)       |
-| GET    | `/search`         | `q` (optional — omit to list a category's latest), `category`, `sort`, `limit` |
+| GET    | `/engines`        | Configured engines (`slug`, `name`) and the fallback try-order        |
+| GET    | `/categories`     | Category slugs the engine registry accepts (`movies`, `tv`, `games`, ...) |
+| GET    | `/search`         | `q` (optional — omit to list a category's latest), `category`, `sort`, `limit`, `engine` |
 | GET    | `/movies/search`  | `/search` pre-filtered to `category=movies`; `q` is required         |
 | GET    | `/movies/latest`  | `/search` pre-filtered to `category=movies` with no query             |
 
 Common query params: `sort` (`seeders`/`leechers`/`size`/`data` — `data` means date added),
-`limit` (1–50, default 15, each unit is one extra detail-page fetch).
+`limit` (1–50, default 15, each unit is one extra detail-page fetch), `engine` (a slug from
+`/engines` — omit to try each engine in turn and return the first non-empty result).
 
-Each result: `filename`, `category`, `download` (magnet link), `size` (bytes), `pubdate`
-(added date), `seeders`, `leechers`, `uploader`, `page` (rargb.to detail page URL).
+Every search response is `{"engine": "<slug that answered>", "results": [...]}` — the caller can
+tell which engine actually produced the results even in auto mode. Each result: `filename`,
+`category`, `download` (magnet link), `size` (bytes), `pubdate` (added date), `seeders`,
+`leechers`, `uploader`, `page` (the engine's detail page URL).

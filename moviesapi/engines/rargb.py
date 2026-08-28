@@ -8,6 +8,13 @@ per result, done concurrently to keep latency reasonable.
 
 This is HTML scraping, not a documented API: rargb.to can change its markup
 or block scraping at any time without notice, which would break parsing here.
+
+Note on picking new engines: not every torrent index can be added this way.
+Sites behind an interactive bot-challenge (e.g. Cloudflare's "managed
+challenge" — ext.to and 1337x.to both are, as of this writing) require
+defeating that challenge to scrape, which is out of scope here regardless of
+how appealing the site is as a source — see the engine interface note in
+engines/__init__.py before adding one.
 """
 
 import re
@@ -17,6 +24,11 @@ from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
+
+from .errors import ScrapeError
+
+SLUG = "rargb"
+NAME = "RARGB"
 
 BASE = "https://rargb.to"
 HEADERS = {
@@ -32,10 +44,6 @@ CATEGORIES = ["movies", "tv", "games", "music", "anime", "apps", "documentaries"
 SORTS = ["seeders", "leechers", "size", "data"]
 
 _SIZE_UNITS = {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4}
-
-
-class ScrapeError(Exception):
-    """rargb.to was unreachable, or its markup no longer matches what we parse."""
 
 
 def _fetch(url: str, params: Optional[dict] = None) -> BeautifulSoup:

@@ -263,14 +263,20 @@ v3 API key) from <https://www.themoviedb.org/settings/api> — set
 everything else in the app keeps working as normal.
 
 The same title page also has a **Torrents** section with a **Find torrents**
-button, separate from the TMDB metadata above. Clicking it calls
-`server/rarbg.js`, which asks the [moviesapi](./moviesapi) service (a second
-container in `docker-compose.yml`) to search [rargb.to](https://rargb.to), a
-live RARBG-style mirror — RARBG's own API has been dead since 2023, so
-moviesapi scrapes rargb.to's HTML directly. Results show seeders/leechers/size
-with an **Add** button that queues the magnet the same way pasting one does.
-Being a scrape rather than a documented API, it can break if rargb.to changes
-its markup; failures surface inline as an error instead of hanging.
+button and an **Engine** picker, separate from the TMDB metadata above.
+Clicking it calls `server/rarbg.js`, which asks the [moviesapi](./moviesapi)
+service (a second container in `docker-compose.yml`) to search one of its
+configured engines — today just [rargb.to](https://rargb.to), a live
+RARBG-style mirror, since RARBG's own API has been dead since 2023. Leave the
+engine on **Auto** to have moviesapi try each configured engine in turn and
+return the first one with a match; pick one by name to search only that
+source. Results show seeders/leechers/size with an **Add** button that queues
+the magnet the same way pasting one does. Being a scrape rather than a
+documented API, an engine can break if its site changes markup; failures
+surface inline as an error instead of hanging. See
+[moviesapi's README](./moviesapi/README.md#engines) for what it takes to add
+another engine — not every torrent index qualifies, several sit behind
+bot-detection that's out of scope to defeat.
 
 ## Files: organize downloads into a library
 
@@ -393,8 +399,9 @@ server/
   files.js    Library file manager, scoped to LIBRARY_DIRS (Files page)
 public/       the UI (no build step, no framework)
 data/         torrentd.db (gitignored)
-moviesapi/    FastAPI service that scrapes rargb.to for torrent search — separate
-              Python service, own README, own Dockerfile
+moviesapi/    FastAPI service with a small torrent-search-engine registry
+              (engines/, rargb.to today) — separate Python service, own
+              README, own Dockerfile
 ```
 
 `old-kotlin/` holds an earlier Ktor prototype, kept for reference; nothing in
